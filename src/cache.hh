@@ -56,7 +56,7 @@ class cache_item {
 
  public:
   cache_item(
-      const seastar::sstring&& key, const seastar::sstring&& value, uint64_t ttl
+      const seastar::sstring&& key, const seastar::sstring&& value, uint32_t ttl
   )
       : _key(key), _value(value), _refcnt(0) {
     // calculate expiration based on provided ttl
@@ -149,7 +149,7 @@ class cache {
 
   size_t _max_cache_size;
   size_t _estimated_cache_size;
-  uint64_t _ttl;
+  uint32_t _ttl;
   std::vector<cache_type::bucket_type> _buckets;
   cache_type _cache;
   lru_type _lru;
@@ -157,7 +157,7 @@ class cache {
   seastar::timer<clock_type> _timer;
 
  public:
-  cache(size_t bucket_count, size_t max_cache_size, uint64_t ttl)
+  cache(size_t bucket_count, size_t max_cache_size, uint32_t ttl)
       : _max_cache_size(max_cache_size),
         _estimated_cache_size(0),
         _ttl(ttl),

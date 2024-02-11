@@ -17,11 +17,12 @@
 #include <boost/intrusive/options.hpp>
 #include <boost/intrusive/unordered_set.hpp>
 #include <boost/intrusive/unordered_set_hook.hpp>
+#include <boost/smart_ptr/intrusive_ptr.hpp>
 #include <chrono>
-#include <cstdint>
 #include <exception>
 #include <functional>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/timer-set.hh>
 #include <seastar/util/log.hh>
@@ -30,7 +31,6 @@ namespace foo {
 namespace cache {
 
 class not_enough_space_error : public std::exception {};
-class no_such_entry_error : public std::exception {};
 
 namespace bi = boost::intrusive;
 
@@ -45,18 +45,20 @@ class cache_item {
   bi::list_member_hook<> timer_link;
   bi::unordered_set_member_hook<> cache_link;
   bi::list_member_hook<> lru_link;
+  bi::list_member_hook<> lst_link;
 
  private:
   size_t _key_hash;
   seastar::sstring _key;
   seastar::sstring _value;
   time_point _expiration;
+  uint32_t _refcnt;
 
  public:
   cache_item(
       const seastar::sstring&& key, const seastar::sstring&& value, uint64_t ttl
   )
-      : _key(key), _value(value) {
+      : _key(key), _value(value), _refcnt(0) {
     // calculate expiration based on provided ttl
     touch(ttl);
 
@@ -94,7 +96,22 @@ class cache_item {
         a.hash() == b.hash() && a.key() == b.key() && a.value() == b.value()
     );
   }
+
+  friend inline void intrusive_ptr_add_ref(cache_item* item) {
+    assert(item->_refcnt >= 0);
+    ++item->_refcnt;
+  }
+
+  friend inline void intrusive_ptr_release(cache_item* item) {
+    --item->_refcnt;
+    assert(item->_refcnt >= 0);
+    if (item->_refcnt == 0) {
+      delete item;
+    }
+  }
 };
+
+using cache_item_ptr = seastar::foreign_ptr<boost::intrusive_ptr<cache_item>>;
 
 /*
  * Used to perform less expensive lookups on an intrusive unordered_set, as
@@ -148,6 +165,8 @@ class cache {
         _cache(cache_type::bucket_traits(_buckets.data(), bucket_count)) {
     _timer.set_callback([&] { expire(); });
   }
+  cache(const cache&) = delete;
+  cache(cache&) = delete;
 
   ~cache() {
     // clear cache
@@ -157,16 +176,18 @@ class cache {
     return _cache.find(key, std::hash<seastar::sstring>(), item_cmp());
   }
 
+  template <bool IsLocal = true>
   bool put(const seastar::sstring&& key, const seastar::sstring&& value);
 
+  void remove(const seastar::sstring& key);
+
+  // Obtain an item from cache, if available. If not available returns nullptr.
+  cache_item_ptr get(const seastar::sstring& key);
+
+ private:
   // Remove a given item from the cache, freeing up space taken.
   void remove(cache_item& item, bool expired);
 
-  // Obtain a value from cache, if available. If not available, throws
-  // 'no_such_entry_error'.
-  const seastar::sstring& get(const seastar::sstring& key);
-
- private:
   // Returns the estimated size of a given item.
   size_t item_size(cache_item& item) {
     return sizeof(cache_item) + item.key_size() + item.value_size();

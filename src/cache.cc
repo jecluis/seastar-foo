@@ -5,6 +5,7 @@
  */
 #include "cache.hh"
 
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/util/log.hh>
 
 static seastar::logger applog(__FILE__);
@@ -13,6 +14,7 @@ namespace foo {
 
 namespace cache {
 
+template <bool IsLocal>
 bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
   applog.debug("put key '{}' into cache", key);
   auto it = find(key);
@@ -22,7 +24,12 @@ bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
     auto& existing = *it;
     remove(existing, false);
   }
-  cache_item* new_item = new cache_item(std::move(key), std::move(value), _ttl);
+  cache_item* new_item =
+      (IsLocal ? new cache_item(std::move(key), std::move(value), _ttl)
+               : new cache_item(
+                     std::forward<const seastar::sstring&&>(key),
+                     std::forward<const seastar::sstring&&>(value), _ttl
+                 ));
   size_t required_size = item_size(*new_item);
 
   try {
@@ -37,6 +44,7 @@ bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
   _cache.insert(*new_item);
   _lru.push_front(*new_item);
   _exp_timers.insert(*new_item);
+  intrusive_ptr_add_ref(new_item);
   // This should not be needed, because the item we're adding will always have
   // a later timeout than whatever is the next timeout, except if this item is
   // the only one in the cache and was thus removed earlier in this function.
@@ -59,20 +67,30 @@ void cache::remove(cache_item& item, bool expired) {
   }
   _lru.remove(item);
   _estimated_cache_size -= item_size(item);
-  delete &item;
+  intrusive_ptr_release(&item);
 }
 
-const seastar::sstring& cache::get(const seastar::sstring& key) {
+void cache::remove(const seastar::sstring& key) {
+  applog.debug("remove key '{}' from cache", key);
+  auto item = find(key);
+  if (item == _cache.end()) {
+    applog.debug("no such key '{}' in cache", key);
+    return;
+  }
+  remove(*item, false);
+}
+
+cache_item_ptr cache::get(const seastar::sstring& key) {
   applog.debug("get key '{}'", key);
   auto it = find(key);
   if (it == _cache.end()) {
     applog.debug("no such key '{}' in cache", key);
-    throw no_such_entry_error();
+    return nullptr;
   }
   it->touch(_ttl);
   _lru.remove(*it);
   _lru.push_front(*it);
-  return it->value();
+  return cache_item_ptr(&*it);
 }
 
 }  // namespace cache

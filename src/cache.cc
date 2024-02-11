@@ -14,8 +14,9 @@ namespace foo {
 
 namespace cache {
 
-template <bool IsLocal>
-bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
+bool cache::put(
+    const seastar::sstring&& key, const seastar::sstring&& value, bool local
+) {
   applog.debug("put key '{}' into cache", key);
   auto it = find(key);
   if (it != _cache.end()) {
@@ -25,11 +26,11 @@ bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
     remove_item(existing, false);
   }
   cache_item* new_item =
-      (IsLocal ? new cache_item(std::move(key), std::move(value), _ttl)
-               : new cache_item(
-                     std::forward<const seastar::sstring&&>(key),
-                     std::forward<const seastar::sstring&&>(value), _ttl
-                 ));
+      (local ? new cache_item(std::move(key), std::move(value), _ttl)
+             : new cache_item(
+                   std::forward<const seastar::sstring&&>(key),
+                   std::forward<const seastar::sstring&&>(value), _ttl
+               ));
   size_t required_size = item_size(*new_item);
 
   try {

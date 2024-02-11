@@ -176,8 +176,10 @@ class cache {
     return _cache.find(key, std::hash<seastar::sstring>(), item_cmp());
   }
 
-  template <bool IsLocal = true>
-  bool put(const seastar::sstring&& key, const seastar::sstring&& value);
+  bool put(
+      const seastar::sstring&& key, const seastar::sstring&& value,
+      bool local = true
+  );
 
   bool remove(const seastar::sstring& key);
 

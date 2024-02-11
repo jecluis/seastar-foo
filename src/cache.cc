@@ -22,7 +22,7 @@ bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
     // exists, replace
     applog.debug("key '{}' already exists in cache, remove", key);
     auto& existing = *it;
-    remove(existing, false);
+    remove_item(existing, false);
   }
   cache_item* new_item =
       (IsLocal ? new cache_item(std::move(key), std::move(value), _ttl)
@@ -59,7 +59,7 @@ bool cache::put(const seastar::sstring&& key, const seastar::sstring&& value) {
   return true;
 }
 
-void cache::remove(cache_item& item, bool expired) {
+void cache::remove_item(cache_item& item, bool expired) {
   applog.debug("remove key '{}' from cache", item.key());
   _cache.erase(_cache.iterator_to(item));
   if (!expired) {
@@ -70,14 +70,15 @@ void cache::remove(cache_item& item, bool expired) {
   intrusive_ptr_release(&item);
 }
 
-void cache::remove(const seastar::sstring& key) {
+bool cache::remove(const seastar::sstring& key) {
   applog.debug("remove key '{}' from cache", key);
   auto item = find(key);
   if (item == _cache.end()) {
     applog.debug("no such key '{}' in cache", key);
-    return;
+    return false;
   }
-  remove(*item, false);
+  remove_item(*item, false);
+  return true;
 }
 
 cache_item_ptr cache::get(const seastar::sstring& key) {

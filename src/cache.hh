@@ -179,14 +179,14 @@ class cache {
   template <bool IsLocal = true>
   bool put(const seastar::sstring&& key, const seastar::sstring&& value);
 
-  void remove(const seastar::sstring& key);
+  bool remove(const seastar::sstring& key);
 
   // Obtain an item from cache, if available. If not available returns nullptr.
   cache_item_ptr get(const seastar::sstring& key);
 
  private:
   // Remove a given item from the cache, freeing up space taken.
-  void remove(cache_item& item, bool expired);
+  void remove_item(cache_item& item, bool expired);
 
   // Returns the estimated size of a given item.
   size_t item_size(cache_item& item) {
@@ -212,7 +212,7 @@ class cache {
 
     while (!_cache.empty()) {
       auto& item = _lru.back();
-      remove(item, false);
+      remove_item(item, false);
 
       if (has_required_space(required)) {
         break;
@@ -226,7 +226,7 @@ class cache {
     while (!expired.empty()) {
       auto& item = *expired.begin();
       expired.pop_front();
-      remove(item, true);
+      remove_item(item, true);
     }
     _timer.arm(_exp_timers.get_next_timeout());
   }

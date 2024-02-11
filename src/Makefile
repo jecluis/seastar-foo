@@ -2,8 +2,9 @@ COMPILER = /usr/bin/clang++
 CFLAGS = -g
 MODE = release
 
-foo: foo.cc cache.cc
-	$(COMPILER) foo.cc cache.cc $(shell pkg-config --libs --cflags --static ../seastar/build/$(MODE)/seastar.pc) $(CFLAGS) -o foo
+foo: foo.cc cache.cc sharded_cache.cc
+	$(COMPILER) foo.cc cache.cc sharded_cache.cc \
+		$(shell pkg-config --libs --cflags --static ../seastar/build/$(MODE)/seastar.pc) $(CFLAGS) -o foo
 
 app: /opt/seastar/build/$(MODE)/libseastar.a app.cc
 	$(COMPILER) app.cc $(shell pkg-config --libs --cflags --static /opt/seastar/build/$(MODE)/seastar.pc) $(CFLAGS) -o app

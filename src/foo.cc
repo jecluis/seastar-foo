@@ -34,8 +34,10 @@
 #include <seastar/util/log.hh>
 
 #include "cache.hh"
+#include "cmap.hh"
 #include "httpd.hh"
 #include "sharded_cache.hh"
+#include "store.hh"
 
 using namespace seastar;
 
@@ -68,6 +70,13 @@ int main(int argc, char** argv) {
       "cache-buckets", bpo::value<size_t>()->default_value(1 << 7),
       "number of backing buckets for the cache"
   );
+  app.add_options()(
+      "store-buckets", bpo::value<size_t>()->default_value(1 << 7),
+      "number of file system buckets"
+  );
+  app.add_options()(
+      "store-path", bpo::value<seastar::sstring>()->required(), "path to store"
+  );
 
   try {
     app.run(argc, argv, [&] {
@@ -80,6 +89,11 @@ int main(int argc, char** argv) {
       uint32_t cache_ttl = config["cache-ttl"].as<uint32_t>();
       size_t cache_bucket_count = config["cache-buckets"].as<size_t>();
 
+      size_t store_bucket_count = config["store-buckets"].as<size_t>();
+      seastar::sstring store_path = config["store-path"].as<seastar::sstring>();
+
+      foo::consistent_map cmap(store_bucket_count, seastar::smp::count);
+
       applog.debug("httpd addr: {}", httpd_addr);
       applog.debug(
           "cache max size: {}, ttl: {}, buckets: {}", cache_size, cache_ttl,
@@ -88,65 +102,81 @@ int main(int argc, char** argv) {
 
       engine().at_exit([&] { return cache_peers.stop(); });
 
-      return cache_peers.start(cache_bucket_count, cache_size, cache_ttl).then([&] {
-        return seastar::async([&cache, httpd_addr] {
-          // keep httpd server alive for as long as the task is not interrupted.
-          seastar::condition_variable httpd_cond;
+      return foo::store::open_or_create(store_path, store_bucket_count)
+          .then([store_path](uint32_t num_buckets) {
+            applog.info(
+                "opened store at {} with {} buckets", store_path, num_buckets
+            );
+            return make_ready_future<>();
+          })
+          .then([&cache_peers, cache_bucket_count, cache_size, cache_ttl] {
+            applog.info(
+                "starting cache peers: cnt {}, size {}, ttl {}",
+                cache_bucket_count, cache_size, cache_ttl
+            );
+            return cache_peers.start(cache_bucket_count, cache_size, cache_ttl);
+          })
+          .then([&cache, httpd_addr] {
+            return seastar::async([&cache, httpd_addr] {
+              // keep httpd server alive for as long as the task is not interrupted.
+              seastar::condition_variable httpd_cond;
 
-          auto httpd_server = new httpd::http_server_control();
+              auto httpd_server = new httpd::http_server_control();
 
-          // ensure we stop the httpd server when we exit, probably because of
-          // an interrupt.
-          engine().at_exit([httpd_server, &httpd_cond] {
-            applog.info("stopping httpd");
-            return httpd_server->stop().then([&httpd_cond] {
-              httpd_cond.broadcast();
+              // ensure we stop the httpd server when we exit, probably because of
+              // an interrupt.
+              engine().at_exit([httpd_server, &httpd_cond] {
+                applog.info("stopping httpd");
+                return httpd_server->stop().then([&httpd_cond] {
+                  httpd_cond.broadcast();
+                });
+              });
+
+              // start httpd server, set up routes, and listen.
+              // listening involves invoking the underlying 'http_server's listen
+              // function on all shards.
+              // however, because the future returns after invoking the listen
+              // function (instead of actively waiting while listening), our thread
+              // will have to wait for a reason to stop the underlying 'http_server'
+              // -- we'll do that with a condition, which will be triggered once the
+              // http_server is stopped.
+              //
+              (void)httpd_server->start("httpd")
+                  .then([httpd_addr] {
+                    applog.info("starting httpd server at {}", httpd_addr);
+                  })
+                  .then([&cache, httpd_server] {
+                    (void)httpd_server->set_routes([&cache](httpd::routes& r) {
+                      r.add(
+                          httpd::operation_type::GET,
+                          httpd::url("/get").remainder("key"),
+                          new foo::httpd::cache_get_handler(std::ref(cache))
+                      );
+                    });
+                  })
+                  .then([httpd_server, httpd_addr] {
+                    applog.debug("listen on {}", httpd_addr);
+                    (void)httpd_server->listen(httpd_addr)
+                        .handle_exception([httpd_addr](auto ep) {
+                          applog.error(
+                              "error listening on {}: {}", httpd_addr, ep
+                          );
+                          return make_exception_future<>(ep);
+                        })
+                        .then([httpd_addr] {
+                          applog.info("httpd listening on {}", httpd_addr);
+                        });
+                  })
+                  .then([&httpd_cond] {
+                    applog.info("waiting for httpd server...");
+                    return httpd_cond.wait().then([] {
+                      applog.info("httpd interrupted, leave.");
+                    });
+                  })
+                  .finally([] { applog.info("finish"); })
+                  .get();
             });
           });
-
-          // start httpd server, set up routes, and listen.
-          // listening involves invoking the underlying 'http_server's listen
-          // function on all shards.
-          // however, because the future returns after invoking the listen
-          // function (instead of actively waiting while listening), our thread
-          // will have to wait for a reason to stop the underlying 'http_server'
-          // -- we'll do that with a condition, which will be triggered once the
-          // http_server is stopped.
-          //
-          (void)httpd_server->start("httpd")
-              .then([httpd_addr] {
-                applog.info("starting httpd server at {}", httpd_addr);
-              })
-              .then([&cache, httpd_server] {
-                (void)httpd_server->set_routes([&cache](httpd::routes& r) {
-                  r.add(
-                      httpd::operation_type::GET,
-                      httpd::url("/get").remainder("key"),
-                      new foo::httpd::cache_get_handler(std::ref(cache))
-                  );
-                });
-              })
-              .then([httpd_server, httpd_addr] {
-                applog.debug("listen on {}", httpd_addr);
-                (void)httpd_server->listen(httpd_addr)
-                    .handle_exception([httpd_addr](auto ep) {
-                      applog.error("error listening on {}: {}", httpd_addr, ep);
-                      return make_exception_future<>(ep);
-                    })
-                    .then([httpd_addr] {
-                      applog.info("httpd listening on {}", httpd_addr);
-                    });
-              })
-              .then([&httpd_cond] {
-                applog.info("waiting for httpd server...");
-                return httpd_cond.wait().then([] {
-                  applog.info("httpd interrupted, leave.");
-                });
-              })
-              .finally([] { applog.info("finish"); })
-              .get();
-        });
-      });
     });
   } catch (...) {
     applog.error("couldn't start application: {}", std::current_exception());

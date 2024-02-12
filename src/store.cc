@@ -25,6 +25,8 @@ namespace foo {
 
 namespace store {
 
+// Creates a store directory, populating the control file that keeps the number
+// of buckets being used.
 seastar::future<> create_store(
     const seastar::sstring& path, uint32_t num_buckets
 ) {
@@ -49,6 +51,7 @@ seastar::future<> create_store(
   });
 }
 
+// Opens a store directory, returning the number of buckets being used.
 seastar::future<uint32_t> open_store(const seastar::sstring& path) {
   auto fname = fmt::format("{}/num_buckets", path);
   auto flags = seastar::open_flags::ro;
@@ -79,6 +82,9 @@ seastar::future<uint32_t> open_store(const seastar::sstring& path) {
   );
 }
 
+// Either open an existing store, or create it if it doesn't exist.
+// If the store is being created, a control file to store the number of buckets
+// is written.
 seastar::future<uint32_t> open_or_create(
     const seastar::sstring& path, uint32_t num_buckets
 ) {

@@ -38,21 +38,26 @@ class consistent_map {
     }
   }
 
-  // no point in copying the container
-  consistent_map(consistent_map&) = delete;
-  consistent_map(const consistent_map&) = delete;
+  consistent_map(consistent_map&) = default;
+  consistent_map(const consistent_map&) = default;
 
   ~consistent_map() = default;
 
-  unsigned int get_shard(const seastar::sstring& key) const {
-    auto hash = std::hash<seastar::sstring>()(key);
-    return get_shard(hash);
+  size_t get_hash(const seastar::sstring& key) const {
+    return std::hash<seastar::sstring>()(key);
   }
 
-  unsigned int get_shard(size_t hash) const {
-    auto bucket = hash % _num_buckets;
-    return _map[bucket];
+  uint32_t get_bucket(size_t hash) const { return hash % _num_buckets; }
+
+  uint32_t get_bucket(const seastar::sstring& key) const {
+    return get_bucket(get_hash(key));
   }
+
+  unsigned int get_shard(const seastar::sstring& key) const {
+    return get_shard(get_hash(key));
+  }
+
+  unsigned int get_shard(size_t hash) const { return _map[get_bucket(hash)]; }
 
   std::vector<uint32_t> get_shard_buckets(unsigned int shard_id) const {
     assert(_per_shard_buckets.contains(shard_id));

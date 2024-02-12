@@ -20,7 +20,6 @@
 
 #include "cache.hh"
 #include "cmap.hh"
-#include "utils.hh"
 
 namespace foo {
 

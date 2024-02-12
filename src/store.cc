@@ -22,6 +22,8 @@
 #include <seastar/util/log.hh>
 #include <stdexcept>
 
+#include "utils.hh"
+
 static seastar::logger applog(__FILE__);
 
 namespace foo {

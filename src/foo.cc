@@ -36,9 +36,10 @@
 #include "cache.hh"
 #include "cmap.hh"
 #include "httpd.hh"
+#include "seastar/core/shard_id.hh"
+#include "seastar/core/shared_ptr.hh"
 #include "sharded_cache.hh"
 #include "store.hh"
-#include "utils.hh"
 
 using namespace seastar;
 
@@ -49,6 +50,9 @@ static logger applog(__FILE__);
 int main(int argc, char** argv) {
   seastar::distributed<foo::cache::cache> cache_peers;
   foo::cache::sharded_cache cache(cache_peers);
+
+  seastar::distributed<foo::store::store_shard> store_shards;
+  foo::store::sharded_store store(store_shards);
 
   app_template app;
 
@@ -93,7 +97,10 @@ int main(int argc, char** argv) {
       size_t store_bucket_count = config["store-buckets"].as<size_t>();
       seastar::sstring store_path = config["store-path"].as<seastar::sstring>();
 
-      foo::consistent_map cmap(store_bucket_count, seastar::smp::count);
+      foo::consistent_map_ptr cmap =
+          seastar::make_lw_shared<foo::consistent_map>(
+              foo::consistent_map(store_bucket_count, seastar::smp::count)
+          );
 
       applog.debug("httpd addr: {}", httpd_addr);
       applog.debug(
@@ -102,6 +109,7 @@ int main(int argc, char** argv) {
       );
 
       engine().at_exit([&] { return cache_peers.stop(); });
+      engine().at_exit([&] { return store_shards.stop(); });
 
       return foo::store::open_or_create(store_path, store_bucket_count)
           .then([store_path](uint32_t num_buckets) {
@@ -110,24 +118,23 @@ int main(int argc, char** argv) {
             );
             return make_ready_future<>();
           })
-          .then([store_path] {
-            auto manifest = new foo::store::bucket_manifest(store_path);
-            return manifest->init().then([manifest] {
-              auto s1 = foo::gen_rnd_str(10);
-              return manifest->put(s1)
-                  .then([s1, manifest](auto fname) {
-                    applog.debug("added key '{}' with fname '{}'", s1, fname);
-                    return seastar::make_ready_future<std::vector<std::string>>(
-                        manifest->list()
-                    );
-                  })
-                  .then([manifest](auto lst) {
-                    assert(lst.size() > 0);
-                    applog.debug("manifest list size = {}", lst.size());
-                    auto front = lst[0];
-                    applog.debug("drop key '{}'", front);
-                    return manifest->remove(front);
-                  });
+          .then([cmap] {
+            auto buckets = cmap->get_shard_buckets(seastar::this_shard_id());
+            applog.debug("owned buckets: {}", buckets.size());
+            for (auto& bid : buckets) {
+              applog.debug("owning bucket {}", bid);
+            }
+          })
+          .then([&store_shards, store_path, cmap, cache_bucket_count,
+                 cache_size, cache_ttl] {
+            applog.debug("start store shards");
+            return store_shards.start(
+                store_path, cmap, cache_bucket_count, cache_size, cache_ttl
+            );
+          })
+          .then([&store_shards] {
+            return store_shards.invoke_on_all([](auto& shard) {
+              return shard.init();
             });
           })
           .then([&cache_peers, cache_bucket_count, cache_size, cache_ttl] {

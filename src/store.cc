@@ -14,8 +14,10 @@
 #include <seastar/core/file-types.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/future.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread.hh>
@@ -241,6 +243,60 @@ std::vector<std::string> bucket_manifest::list() {
     keys.push_back(key);
   }
   return keys;
+}
+
+seastar::future<> store_bucket::init() {
+  applog.debug("init store bucket at '{}'", _path);
+  return seastar::engine()
+      .file_type(_path)
+      .then([this](std::optional<seastar::directory_entry_type> st) {
+        if (!st.has_value()) {
+          applog.debug("create store bucket directory at {}", _path);
+          return seastar::make_directory(_path);
+        } else if (*st != seastar::directory_entry_type::directory) {
+          return seastar::make_exception_future<>(std::runtime_error(
+              fmt::format("path {} exists but is not a directory", _path)
+          ));
+        }
+        return seastar::make_ready_future<>();
+      })
+      .then([this] { return _manifest.init(); });
+}
+
+seastar::future<> store_bucket::put(
+    const seastar::sstring& key, const seastar::sstring& value
+) {
+  return seastar::make_ready_future<>();
+}
+
+seastar::future<std::unique_ptr<std::string>> store_bucket::get(
+    const seastar::sstring& key
+) {
+  return seastar::make_ready_future<std::unique_ptr<std::string>>(
+      std::make_unique<std::string>(nullptr)
+  );
+}
+
+seastar::future<> store_bucket::remove(const seastar::sstring& key) {
+  return seastar::make_ready_future<>();
+}
+
+seastar::future<> store_shard::init() {
+  auto shard_id = seastar::this_shard_id();
+  auto bucket_ids = _cmap->get_shard_buckets(shard_id);
+
+  for (auto& bid : bucket_ids) {
+    auto bucket_path = fmt::format("{}/{}", _store_path, bid);
+    _buckets[bid] = store_bucket_ptr(new store_bucket(bucket_path));
+  }
+
+  return seastar::parallel_for_each(
+      _buckets.begin(), _buckets.end(),
+      [](auto& entry) {
+        applog.debug("init store bucket {}", entry.first);
+        return entry.second->init();
+      }
+  );
 }
 
 }  // namespace store

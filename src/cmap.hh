@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <unordered_map>
 #include <vector>
@@ -22,17 +23,13 @@ class consistent_map {
 
  public:
   consistent_map(size_t num_buckets, size_t num_shards)
-      : _num_buckets(num_buckets),
-        _num_shards(num_shards),
-        _map(_num_buckets),
-        _per_shard_buckets(_num_shards) {
+      : _num_buckets(num_buckets), _num_shards(num_shards), _map(_num_buckets) {
     assert(_num_buckets >= _num_shards);
-    auto buckets_per_shard = _num_buckets / _num_shards;
     for (auto i = 0; i < _num_buckets; ++i) {
       unsigned int shard_id = i % _num_shards;
       _map[i] = shard_id;
       if (!_per_shard_buckets.contains(shard_id)) {
-        _per_shard_buckets[shard_id] = std::vector<uint32_t>(buckets_per_shard);
+        _per_shard_buckets[shard_id] = std::vector<uint32_t>();
       }
       _per_shard_buckets[shard_id].push_back(i);
     }
@@ -64,5 +61,7 @@ class consistent_map {
     return _per_shard_buckets.find(shard_id)->second;
   }
 };
+
+using consistent_map_ptr = seastar::lw_shared_ptr<consistent_map>;
 
 }  // namespace foo

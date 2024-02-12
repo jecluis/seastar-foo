@@ -82,26 +82,22 @@ seastar::future<uint32_t> open_store(const seastar::sstring& path) {
 seastar::future<uint32_t> open_or_create(
     const seastar::sstring& path, uint32_t num_buckets
 ) {
-  return seastar::async([path, num_buckets] {
-    return seastar::engine()
-        .file_type(path)
-        .then([path,
-               num_buckets](std::optional<seastar::directory_entry_type> st) {
-          if (!st.has_value()) {
-            // create directory, init.
-            return create_store(path, num_buckets).then([num_buckets] {
-              return seastar::make_ready_future<uint32_t>(num_buckets);
-            });
-          } else if (*st != seastar::directory_entry_type::directory) {
-            return seastar::make_exception_future<uint32_t>(std::runtime_error(
-                fmt::format("path {} exists but is not a directory", path)
-            ));
-          }
+  return seastar::engine().file_type(path).then(
+      [path, num_buckets](std::optional<seastar::directory_entry_type> st) {
+        if (!st.has_value()) {
+          // create directory, init.
+          return create_store(path, num_buckets).then([num_buckets] {
+            return seastar::make_ready_future<uint32_t>(num_buckets);
+          });
+        } else if (*st != seastar::directory_entry_type::directory) {
+          return seastar::make_exception_future<uint32_t>(std::runtime_error(
+              fmt::format("path {} exists but is not a directory", path)
+          ));
+        }
 
-          return open_store(path);
-        })
-        .get();
-  });
+        return open_store(path);
+      }
+  );
 }
 
 }  // namespace store

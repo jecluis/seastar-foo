@@ -38,6 +38,7 @@
 #include "httpd.hh"
 #include "sharded_cache.hh"
 #include "store.hh"
+#include "utils.hh"
 
 using namespace seastar;
 
@@ -108,6 +109,26 @@ int main(int argc, char** argv) {
                 "opened store at {} with {} buckets", store_path, num_buckets
             );
             return make_ready_future<>();
+          })
+          .then([store_path] {
+            auto manifest = new foo::store::bucket_manifest(store_path);
+            return manifest->init().then([manifest] {
+              auto s1 = foo::gen_rnd_str(10);
+              return manifest->put(s1)
+                  .then([s1, manifest](auto fname) {
+                    applog.debug("added key '{}' with fname '{}'", s1, fname);
+                    return seastar::make_ready_future<std::vector<std::string>>(
+                        manifest->list()
+                    );
+                  })
+                  .then([manifest](auto lst) {
+                    assert(lst.size() > 0);
+                    applog.debug("manifest list size = {}", lst.size());
+                    auto front = lst[0];
+                    applog.debug("drop key '{}'", front);
+                    return manifest->remove(front);
+                  });
+            });
           })
           .then([&cache_peers, cache_bucket_count, cache_size, cache_ttl] {
             applog.info(

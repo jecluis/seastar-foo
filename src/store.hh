@@ -54,7 +54,7 @@ class bucket_manifest {
   std::optional<std::string> get(const std::string& key);
   bool exists(const std::string& key);
   seastar::future<std::optional<std::string>> remove(const std::string& key);
-  std::vector<std::string> list();
+  std::set<std::string> list();
 
  private:
   seastar::future<> load_manifest();
@@ -83,6 +83,7 @@ class store_bucket {
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<> remove(const seastar::sstring& key);
+  seastar::future<std::set<std::string>> list();
 };
 
 class store_shard {
@@ -117,6 +118,7 @@ class store_shard {
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<bool> remove(const seastar::sstring& key);
+  seastar::future<std::set<std::string>> list();
 
   seastar::future<> stop();
 };
@@ -142,6 +144,8 @@ class sharded_store {
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
 
   seastar::future<bool> remove(const seastar::sstring& key);
+
+  seastar::future<std::set<std::string>> list();
 };
 
 seastar::future<uint32_t> open_or_create(

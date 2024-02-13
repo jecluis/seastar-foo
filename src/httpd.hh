@@ -20,6 +20,7 @@ namespace httpd {
 
 constexpr int MAX_KEY_LEN = 255;
 
+// GET
 class store_get_handler : public seastar::httpd::handler_base {
   foo::store::sharded_store& _store;
 
@@ -32,6 +33,7 @@ class store_get_handler : public seastar::httpd::handler_base {
   );
 };
 
+// PUT
 class store_put_handler : public seastar::httpd::handler_base {
   foo::store::sharded_store& _store;
 
@@ -44,11 +46,25 @@ class store_put_handler : public seastar::httpd::handler_base {
   );
 };
 
+// DELETE
 class store_delete_handler : public seastar::httpd::handler_base {
   foo::store::sharded_store& _store;
 
  public:
   store_delete_handler(foo::store::sharded_store& store) : _store(store) {}
+
+  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
+      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
+      std::unique_ptr<seastar::http::reply> rep
+  );
+};
+
+// List objects / HEAD at root
+class store_list_handler : public seastar::httpd::handler_base {
+  foo::store::sharded_store& _store;
+
+ public:
+  store_list_handler(foo::store::sharded_store& store) : _store(store) {}
 
   virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
       const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,

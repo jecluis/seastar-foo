@@ -19,10 +19,12 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/shard_id.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -253,10 +255,10 @@ seastar::future<std::optional<std::string>> bucket_manifest::remove(
   });
 }
 
-std::vector<std::string> bucket_manifest::list() {
-  std::vector<std::string> keys;
+std::set<std::string> bucket_manifest::list() {
+  std::set<std::string> keys;
   for (const auto& [key, _] : _key_to_fname_map) {
-    keys.push_back(key);
+    keys.insert(key);
   }
   return keys;
 }
@@ -336,6 +338,10 @@ seastar::future<> store_bucket::remove(const seastar::sstring& key) {
     }
     return seastar::make_ready_future<>();
   });
+}
+
+seastar::future<std::set<std::string>> store_bucket::list() {
+  return seastar::make_ready_future<std::set<std::string>>(_manifest.list());
 }
 
 seastar::future<> store_shard::init() {
@@ -443,6 +449,23 @@ seastar::future<bool> store_shard::remove(const seastar::sstring& key) {
   });
 }
 
+seastar::future<std::set<std::string>> store_shard::list() {
+  auto lst = seastar::make_lw_shared<std::set<std::string>>();
+  return seastar::parallel_for_each(
+             _buckets.cbegin(), _buckets.cend(),
+             [lst](const auto& b) {
+               return b.second->list()
+                   .then([lst](const auto& res) {
+                     lst->insert(res.begin(), res.end());
+                   })
+                   .then([] { return seastar::make_ready_future<>(); });
+             }
+  ).then([lst] {
+    std::set<std::string> res(lst->begin(), lst->end());
+    return seastar::make_ready_future<std::set<std::string>>(res);
+  });
+}
+
 seastar::future<> store_shard::stop() {
   applog.debug("stop store shard");
   return seastar::make_ready_future<>();
@@ -475,6 +498,21 @@ seastar::future<bool> sharded_store::remove(const seastar::sstring& key) {
   auto shard = _cmap->get_shard(key);
   applog.debug("remove key {} on shard {}", key, shard);
   return _shards.invoke_on(shard, &store_shard::remove, key);
+}
+
+seastar::future<std::set<std::string>> sharded_store::list() {
+  auto lst = seastar::make_lw_shared<std::set<std::string>>();
+  applog.debug("obtain list from all shards");
+  return _shards
+      .invoke_on_all([lst](store_shard& shard) {
+        return shard.list().then([lst](auto res) {
+          lst->insert(res.begin(), res.end());
+        });
+      })
+      .then([lst] {
+        std::set<std::string> res(lst->begin(), lst->end());
+        return seastar::make_ready_future<std::set<std::string>>(res);
+      });
 }
 
 }  // namespace store

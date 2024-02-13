@@ -183,6 +183,10 @@ int main(int argc, char** argv) {
                           httpd::url("/remove").remainder("key"),
                           new foo::httpd::store_delete_handler(store)
                       );
+                      r.add(
+                          httpd::operation_type::HEAD, httpd::url("/"),
+                          new foo::httpd::store_list_handler(store)
+                      );
                     });
                   })
                   .then([httpd_server, httpd_addr] {

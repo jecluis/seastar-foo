@@ -139,6 +139,27 @@ store_delete_handler::handle(
   });
 }
 
+seastar::future<std::unique_ptr<seastar::http::reply>>
+store_list_handler::handle(
+    const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
+    std::unique_ptr<seastar::http::reply> rep
+) {
+  applog.info("got HEAD / list request from {}", req->get_client_address());
+
+  return _store.list().then([rep = std::move(rep)](auto lst) mutable {
+    std::string res;
+    for (auto& k : lst) {
+      res += k;
+      res += '\n';
+    }
+    rep->write_body("text", res);
+    rep->set_status(seastar::http::reply::status_type::ok).done();
+    return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
+        std::move(rep)
+    );
+  });
+}
+
 }  // namespace httpd
 
 }  // namespace foo

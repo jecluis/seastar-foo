@@ -144,7 +144,7 @@ store_list_handler::handle(
     const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
     std::unique_ptr<seastar::http::reply> rep
 ) {
-  applog.info("got HEAD / list request from {}", req->get_client_address());
+  applog.info("got list request from {}", req->get_client_address());
 
   return _store.list().then([rep = std::move(rep)](auto lst) mutable {
     std::string res;

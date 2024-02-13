@@ -74,6 +74,7 @@ bool cache::put(
 bool cache::put_ptr(const seastar::sstring& key, foo::store::value_ptr value) {
   applog.debug("put key '{}' into cache", key);
   _drop(key);
+  assert(value);
   cache_item* new_item = new cache_item(key, value, _ttl);
   return _put(new_item);
 }

@@ -389,7 +389,9 @@ seastar::future<foo::store::value_ptr> store_shard::get(
 
   // must obtain from disk
   return _buckets[bucket]->get(key).then([this, key](auto data) {
-    _cache.put_ptr(key, data);
+    if (data) {
+      _cache.put_ptr(key, data);
+    }
     return seastar::make_ready_future<foo::store::value_ptr>(data);
   });
 }

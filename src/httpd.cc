@@ -61,8 +61,8 @@ cache_get_handler::handle(
 
   applog.debug("obtain key '{}'", key);
 
-  return _cache.get(key).then([rep = std::move(rep),
-                               key](foo::store::value_ptr data) mutable {
+  return _store->get(key).then([rep = std::move(rep),
+                                key](foo::store::value_ptr data) mutable {
     if (!data) {
       applog.debug("key '{}' not available", key);
       rep->set_status(seastar::http::reply::status_type::not_found).done();

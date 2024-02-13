@@ -6,12 +6,13 @@
 
 #pragma once
 
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/http/request.hh>
 
-#include "sharded_cache.hh"
+#include "store.hh"
 
 namespace foo {
 
@@ -20,10 +21,11 @@ namespace httpd {
 constexpr int MAX_KEY_LEN = 255;
 
 class cache_get_handler : public seastar::httpd::handler_base {
-  foo::cache::sharded_cache& _cache;
+  seastar::lw_shared_ptr<foo::store::sharded_store> _store;
 
  public:
-  cache_get_handler(foo::cache::sharded_cache& cache) : _cache(cache) {}
+  cache_get_handler(seastar::lw_shared_ptr<foo::store::sharded_store> store)
+      : _store(store) {}
 
   virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
       const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,

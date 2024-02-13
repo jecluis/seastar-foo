@@ -146,8 +146,8 @@ int main(int argc, char** argv) {
             );
             return cache_peers.start(cache_bucket_count, cache_size, cache_ttl);
           })
-          .then([&cache, httpd_addr] {
-            return seastar::async([&cache, httpd_addr] {
+          .then([store, httpd_addr] {
+            return seastar::async([store, httpd_addr] {
               // keep httpd server alive for as long as the task is not interrupted.
               seastar::condition_variable httpd_cond;
 
@@ -175,12 +175,12 @@ int main(int argc, char** argv) {
                   .then([httpd_addr] {
                     applog.info("starting httpd server at {}", httpd_addr);
                   })
-                  .then([&cache, httpd_server] {
-                    (void)httpd_server->set_routes([&cache](httpd::routes& r) {
+                  .then([store, httpd_server] {
+                    (void)httpd_server->set_routes([store](httpd::routes& r) {
                       r.add(
                           httpd::operation_type::GET,
                           httpd::url("/get").remainder("key"),
-                          new foo::httpd::cache_get_handler(std::ref(cache))
+                          new foo::httpd::cache_get_handler(store)
                       );
                     });
                   })

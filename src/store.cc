@@ -141,7 +141,9 @@ void bucket_manifest::load_entries(seastar::temporary_buffer<char>& tbuf) {
     const char* key_pos = buf + pos;
     const char* fname_pos = key_pos + key_size;
 
-    auto key = std::string(key_pos, key_size);
+    auto raw_key = std::string(key_pos, key_size);
+    auto fpos = raw_key.find_first_of('\0');
+    auto key = std::string(raw_key.c_str(), fpos);
     auto fname = std::string(fname_pos, fname_size);
     applog.debug("load manifest, key '{}' fname '{}'", key, fname);
 
@@ -214,7 +216,12 @@ seastar::future<std::string> bucket_manifest::put(const std::string& key) {
 }
 
 std::optional<std::string> bucket_manifest::get(const std::string& key) {
-  applog.debug("obtain key '{}' from manifest", key);
+  applog.debug("obtain key '{}' ({}b) from manifest", key, key.size());
+  std::string lst;
+  for (auto& [k, v] : _key_to_fname_map) {
+    lst += fmt::format("'{} ({}b)' ", k, k.size());
+  }
+  applog.debug("keys in manifest: {}", lst);
   const auto& it = _key_to_fname_map.find(key);
   if (it == _key_to_fname_map.cend()) {
     return std::nullopt;
@@ -395,6 +402,7 @@ seastar::future<foo::store::value_ptr> store_shard::get(
   auto cache_value = _cache.get(key);
   if (cache_value) {
     // in cache, return value
+    applog.debug("obtained key '{}' from cache", key);
     return seastar::make_ready_future<foo::store::value_ptr>(cache_value);
   }
 

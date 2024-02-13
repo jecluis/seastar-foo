@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   );
   app.add_options()(
       "cache-max-size", bpo::value<size_t>()->default_value(100 * 1 << 20),
-      "maximum cache size, in bytes"
+      "maximum cache size, in bytes, per shard"
   );
   app.add_options()(
       "cache-ttl", bpo::value<uint32_t>()->default_value(60),

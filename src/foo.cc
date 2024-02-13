@@ -36,10 +36,8 @@
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/log.hh>
 
-#include "cache.hh"
 #include "cmap.hh"
 #include "httpd.hh"
-#include "sharded_cache.hh"
 #include "store.hh"
 
 using namespace seastar;
@@ -49,8 +47,6 @@ namespace bpo = boost::program_options;
 static logger applog(__FILE__);
 
 int main(int argc, char** argv) {
-  seastar::distributed<foo::cache::cache> cache_peers;
-  foo::cache::sharded_cache cache(cache_peers);
   seastar::distributed<foo::store::store_shard> store_shards;
 
   app_template app;
@@ -111,7 +107,6 @@ int main(int argc, char** argv) {
           cache_bucket_count
       );
 
-      engine().at_exit([&] { return cache_peers.stop(); });
       engine().at_exit([&] { return store_shards.stop(); });
 
       return foo::store::open_or_create(store_path, store_bucket_count)
@@ -139,13 +134,6 @@ int main(int argc, char** argv) {
             return store_shards.invoke_on_all([](auto& shard) {
               return shard.init();
             });
-          })
-          .then([&cache_peers, cache_bucket_count, cache_size, cache_ttl] {
-            applog.info(
-                "starting cache peers: cnt {}, size {}, ttl {}",
-                cache_bucket_count, cache_size, cache_ttl
-            );
-            return cache_peers.start(cache_bucket_count, cache_size, cache_ttl);
           })
           .then([store, httpd_addr] {
             return seastar::async([store, httpd_addr] {

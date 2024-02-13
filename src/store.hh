@@ -117,6 +117,8 @@ class store_shard {
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<bool> remove(const seastar::sstring& key);
+
+  seastar::future<> stop();
 };
 
 class sharded_store {

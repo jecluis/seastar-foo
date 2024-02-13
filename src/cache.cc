@@ -79,9 +79,11 @@ bool cache::put_ptr(const seastar::sstring& key, foo::store::value_ptr value) {
   return _put(new_item);
 }
 
-void cache::remove_item(cache_item& item, bool expired) {
+void cache::remove_item(cache_item& item, bool expired, bool in_cache) {
   applog.debug("remove key '{}' from cache", item.key());
-  _cache.erase(_cache.iterator_to(item));
+  if (in_cache) {
+    _cache.erase(_cache.iterator_to(item));
+  }
   if (!expired) {
     _exp_timers.remove(item);
   }
@@ -112,6 +114,14 @@ foo::store::value_ptr cache::get(const seastar::sstring& key) {
   _lru.remove(*it);
   _lru.push_front(*it);
   return it->value();
+}
+
+void cache::flush() {
+  applog.debug("flush cache {} entries", _cache.size());
+  _cache.erase_and_dispose(
+      _cache.begin(), _cache.end(),
+      [this](cache_item* item) { remove_item(*item, false, false); }
+  );
 }
 
 }  // namespace cache

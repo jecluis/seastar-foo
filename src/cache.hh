@@ -178,6 +178,7 @@ class cache {
 
   void _drop(const seastar::sstring& key);
   bool _put(cache_item* item);
+  void flush();
 
  public:
   cache(size_t bucket_count, size_t max_cache_size, uint32_t ttl)
@@ -193,6 +194,7 @@ class cache {
 
   ~cache() {
     // clear cache
+    flush();
   }
 
   inline cache_type::iterator find(const seastar::sstring& key) {
@@ -214,7 +216,7 @@ class cache {
 
  private:
   // Remove a given item from the cache, freeing up space taken.
-  void remove_item(cache_item& item, bool expired);
+  void remove_item(cache_item& item, bool expired, bool in_cache = true);
 
   // Returns the estimated size of a given item.
   size_t item_size(cache_item& item) {

@@ -443,6 +443,11 @@ seastar::future<bool> store_shard::remove(const seastar::sstring& key) {
   });
 }
 
+seastar::future<> store_shard::stop() {
+  applog.debug("stop store shard");
+  return seastar::make_ready_future<>();
+}
+
 seastar::future<> sharded_store::put(
     const seastar::sstring&& key, const seastar::sstring&& value
 ) {

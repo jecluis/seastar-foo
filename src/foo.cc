@@ -23,8 +23,11 @@
 #include <seastar/core/distributed.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/shard_id.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/http/common.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/reply.hh>
@@ -36,8 +39,6 @@
 #include "cache.hh"
 #include "cmap.hh"
 #include "httpd.hh"
-#include "seastar/core/shard_id.hh"
-#include "seastar/core/shared_ptr.hh"
 #include "sharded_cache.hh"
 #include "store.hh"
 

@@ -50,9 +50,7 @@ static logger applog(__FILE__);
 int main(int argc, char** argv) {
   seastar::distributed<foo::cache::cache> cache_peers;
   foo::cache::sharded_cache cache(cache_peers);
-
   seastar::distributed<foo::store::store_shard> store_shards;
-  foo::store::sharded_store store(store_shards);
 
   app_template app;
 
@@ -101,6 +99,8 @@ int main(int argc, char** argv) {
           seastar::make_lw_shared<foo::consistent_map>(
               foo::consistent_map(store_bucket_count, seastar::smp::count)
           );
+
+      foo::store::sharded_store store(store_shards, cmap);
 
       applog.debug("httpd addr: {}", httpd_addr);
       applog.debug(

@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
                           new foo::httpd::store_delete_handler(store)
                       );
                       r.add(
-                          httpd::operation_type::HEAD, httpd::url("/"),
+                          httpd::operation_type::GET, httpd::url("/list"),
                           new foo::httpd::store_list_handler(store)
                       );
                     });

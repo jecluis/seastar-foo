@@ -79,7 +79,7 @@ class store_bucket {
   seastar::future<> init();
 
   seastar::future<> put(
-      const seastar::sstring& key, const seastar::sstring& value
+      const seastar::sstring& key, foo::store::value_ptr value
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<> remove(const seastar::sstring& key);

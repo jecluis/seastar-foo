@@ -280,17 +280,22 @@ seastar::future<> store_bucket::init() {
 }
 
 seastar::future<> store_bucket::put(
-    const seastar::sstring& key, const seastar::sstring& value
+    const seastar::sstring& key, foo::store::value_ptr value
 ) {
-  return _manifest.put(key).then([this, &value](auto fname) {
+  return _manifest.put(key).then([this, value, key](auto fname) {
     auto fpath = fmt::format("{}/{}", _path, fname);
     auto flags = seastar::open_flags::create | seastar::open_flags::truncate |
                  seastar::open_flags::rw;
+    applog.debug(
+        "write contents to file {} key {} size {}", fpath, key, value->size()
+    );
     return seastar::with_file(
         seastar::open_file_dma(fpath, flags),
-        [&value](auto& f) {
-          return seastar::async([&value, &f] {
-            (void)f.dma_write(0, value.c_str(), value.size()).get();
+        [value](auto& f) {
+          // applog.debug("value: {}", value);
+          return seastar::async([value, &f] {
+            (void)f.dma_write(0, value->data(), value->size()).get();
+            (void)f.flush().get();
           });
         }
     );
@@ -366,8 +371,10 @@ seastar::future<> store_shard::put(
     );
   }
 
+  // we need some persistence for the value being passed around
+  auto v = make_value_ptr_by_copy(value.c_str(), value.size());
   return _buckets[bucket]
-      ->put(key, value)
+      ->put(key, v)
       .then([this, key = std::move(key), value = std::move(value)] {
         // NOTE(joao): We're not entirely sure whether this is going to be
         // annoying, but we'll just std::move() the values to the cache,

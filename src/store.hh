@@ -30,7 +30,7 @@ namespace store {
 // Maintains the mapping between this bucket's keys and filenames where data is
 // kept.
 class bucket_manifest {
-  const int key_size = 255;
+  const int key_size = 255 + 1;  // key + terminator character
   const int fname_size = 20;
 
   std::string _manifest_path;

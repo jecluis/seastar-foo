@@ -177,6 +177,7 @@ seastar::future<> bucket_manifest::write_manifest() {
         for (const auto& [key, value] : _key_to_fname_map) {
           assert(pos < manifest_size);
           assert(pos + key_size + fname_size <= manifest_size);
+          assert(key.size() < key_size);
           memcpy(buf + pos, key.c_str(), key.size());
           memcpy(buf + pos + key_size, value.c_str(), fname_size);
           pos += key_size + fname_size;

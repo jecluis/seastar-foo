@@ -33,6 +33,19 @@ class store_get_handler : public seastar::httpd::handler_base {
   );
 };
 
+class store_put_handler : public seastar::httpd::handler_base {
+  seastar::lw_shared_ptr<foo::store::sharded_store> _store;
+
+ public:
+  store_put_handler(seastar::lw_shared_ptr<foo::store::sharded_store> store)
+      : _store(store) {}
+
+  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
+      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
+      std::unique_ptr<seastar::http::reply> rep
+  );
+};
+
 }  // namespace httpd
 
 }  // namespace foo

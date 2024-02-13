@@ -171,6 +171,11 @@ int main(int argc, char** argv) {
                           httpd::url("/get").remainder("key"),
                           new foo::httpd::store_get_handler(store)
                       );
+                      r.add(
+                          httpd::operation_type::PUT,
+                          httpd::url("/put").remainder("key"),
+                          new foo::httpd::store_put_handler(store)
+                      );
                     });
                   })
                   .then([httpd_server, httpd_addr] {

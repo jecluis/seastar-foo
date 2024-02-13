@@ -19,13 +19,17 @@
 #include <boost/intrusive/unordered_set_hook.hpp>
 #include <boost/smart_ptr/intrusive_ptr.hpp>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/timer-set.hh>
 #include <seastar/util/log.hh>
+
+#include "store_value.hh"
 
 namespace foo {
 namespace cache {
@@ -50,20 +54,36 @@ class cache_item {
  private:
   size_t _key_hash;
   seastar::sstring _key;
-  seastar::sstring _value;
+  // seastar::sstring _value;
+  foo::store::value_ptr _value;
   time_point _expiration;
   uint32_t _refcnt;
+
+  void init(foo::store::value_ptr value, uint32_t ttl) {
+    _value = value;
+    // calculate expiration based on provided ttl
+    touch(ttl);
+    // keep key's hash so we don't have to calculate it every time we want it.
+    _key_hash = std::hash<seastar::sstring>()(_key);
+  }
 
  public:
   cache_item(
       const seastar::sstring&& key, const seastar::sstring&& value, uint32_t ttl
   )
-      : _key(key), _value(value), _refcnt(0) {
-    // calculate expiration based on provided ttl
-    touch(ttl);
+      : _key(key), _refcnt(0) {
+    // move value data to a shared_ptr created by us.
+    char* buf = new char[value.size()];
+    memcpy(buf, value.c_str(), value.size());
+    auto v = foo::store::make_value_ptr(buf, value.size());
+    init(v, ttl);
+  }
 
-    // keep key's hash so we don't have to calculate it every time we want it.
-    _key_hash = std::hash<seastar::sstring>()(key);
+  cache_item(
+      const seastar::sstring& key, foo::store::value_ptr value, uint32_t ttl
+  )
+      : _key(key), _refcnt(0) {
+    init(value, ttl);
   }
 
   cache_item(const cache_item&) = delete;
@@ -72,11 +92,11 @@ class cache_item {
 
   size_t hash() const { return _key_hash; }
   size_t key_size() const { return _key.size(); }
-  size_t value_size() const { return _value.size(); }
+  size_t value_size() const { return _value->size(); }
   time_point get_timeout() const { return _expiration; }
 
   const seastar::sstring& key() const { return _key; }
-  const seastar::sstring& value() const { return _value; }
+  const foo::store::value_ptr value() const { return _value; }
 
   void touch(uint64_t ttl) {
     _expiration = clock_type::now() + std::chrono::seconds(ttl);
@@ -156,6 +176,9 @@ class cache {
   seastar::timer_set<cache_item, &cache_item::timer_link> _exp_timers;
   seastar::timer<clock_type> _timer;
 
+  void _drop(const seastar::sstring& key);
+  bool _put(cache_item* item);
+
  public:
   cache(size_t bucket_count, size_t max_cache_size, uint32_t ttl)
       : _max_cache_size(max_cache_size),
@@ -180,11 +203,14 @@ class cache {
       const seastar::sstring&& key, const seastar::sstring&& value,
       bool local = true
   );
+  // unfortunately, it seems 'invoke_on' gets confused if we have two 'put()'
+  // functions with different arguments.
+  bool put_ptr(const seastar::sstring& key, foo::store::value_ptr value);
 
   bool remove(const seastar::sstring& key);
 
   // Obtain an item from cache, if available. If not available returns nullptr.
-  cache_item_ptr get(const seastar::sstring& key);
+  foo::store::value_ptr get(const seastar::sstring& key);
 
  private:
   // Remove a given item from the cache, freeing up space taken.

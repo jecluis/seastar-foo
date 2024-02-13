@@ -9,6 +9,7 @@
 #include <boost/lexical_cast.hpp>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/file-types.hh>
@@ -23,7 +24,9 @@
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
 #include <stdexcept>
+#include <utility>
 
+#include "store_value.hh"
 #include "utils.hh"
 
 static seastar::logger applog(__FILE__);
@@ -266,14 +269,44 @@ seastar::future<> store_bucket::init() {
 seastar::future<> store_bucket::put(
     const seastar::sstring& key, const seastar::sstring& value
 ) {
-  return seastar::make_ready_future<>();
+  return _manifest.put(key).then([this, &value](auto fname) {
+    auto fpath = fmt::format("{}/{}", _path, fname);
+    auto flags = seastar::open_flags::create | seastar::open_flags::truncate |
+                 seastar::open_flags::rw;
+    return seastar::with_file(
+        seastar::open_file_dma(fpath, flags),
+        [&value](auto& f) {
+          return seastar::async([&value, &f] {
+            (void)f.dma_write(0, value.c_str(), value.size()).get();
+          });
+        }
+    );
+  });
 }
 
-seastar::future<std::unique_ptr<std::string>> store_bucket::get(
+// Read data from disk
+seastar::future<foo::store::value_ptr> store_bucket::get(
     const seastar::sstring& key
 ) {
-  return seastar::make_ready_future<std::unique_ptr<std::string>>(
-      std::make_unique<std::string>(nullptr)
+  auto fname = _manifest.get(key);
+  if (!fname) {
+    return seastar::make_ready_future<foo::store::value_ptr>(nullptr);
+  }
+  auto fpath = fmt::format("{}/{}", _path, *fname);
+  auto flags = seastar::open_flags::ro;
+  applog.debug("read value for key '{}' at '{}'", key, fpath);
+
+  return seastar::with_file(
+      seastar::open_file_dma(fpath, flags),
+      [](seastar::file& f) {
+        auto fsize = f.size().get();
+
+        return f.dma_read_exactly<char>(0, fsize).then([](auto buf) {
+          return seastar::make_ready_future<foo::store::value_ptr>(
+              foo::store::make_value_ptr_by_copy(buf.get(), buf.size())
+          );
+        });
+      }
   );
 }
 
@@ -297,6 +330,91 @@ seastar::future<> store_shard::init() {
         return entry.second->init();
       }
   );
+}
+
+seastar::future<> store_shard::put(
+    const seastar::sstring&& key, const seastar::sstring&& value
+) {
+  auto bucket = _cmap->get_bucket(key);
+  const auto target_shard = _cmap->get_shard(key);
+  if (target_shard != seastar::this_shard_id()) {
+    return seastar::make_exception_future<>(std::runtime_error("wrong shard"));
+  }
+
+  if (!_buckets.contains(bucket)) {
+    return seastar::make_exception_future<>(
+        std::runtime_error("expected to own bucket")
+    );
+  }
+
+  return _buckets[bucket]
+      ->put(key, value)
+      .then([this, key = std::move(key), value = std::move(value)] {
+        // NOTE(joao): We're not entirely sure whether this is going to be
+        // annoying, but we'll just std::move() the values to the cache,
+        // regardless of whether we're getting them from this shard or from a
+        // remote shard.
+        return _cache.put(std::move(key), std::move(value));
+      })
+      .then([](auto res) {
+        if (!res) {
+          applog.error("unable to store key/value in cache");
+        }
+        return seastar::make_ready_future<>();
+      });
+}
+
+seastar::future<foo::store::value_ptr> store_shard::get(
+    const seastar::sstring& key
+) {
+  auto bucket = _cmap->get_bucket(key);
+  const auto target_shard = _cmap->get_shard(key);
+  if (target_shard != seastar::this_shard_id()) {
+    return seastar::make_exception_future<foo::store::value_ptr>(
+        std::runtime_error("wrong shard")
+    );
+  }
+
+  if (!_buckets.contains(bucket)) {
+    return seastar::make_exception_future<foo::store::value_ptr>(
+        std::runtime_error("expected to own bucket")
+    );
+  }
+
+  auto cache_value = _cache.get(key);
+  if (cache_value) {
+    // in cache, return value
+    return seastar::make_ready_future<foo::store::value_ptr>(cache_value);
+  }
+
+  // must obtain from disk
+  return _buckets[bucket]->get(key).then([this, key](auto data) {
+    _cache.put_ptr(key, data);
+    return seastar::make_ready_future<foo::store::value_ptr>(data);
+  });
+}
+
+seastar::future<> sharded_store::put(
+    const seastar::sstring&& key, const seastar::sstring&& value
+) {
+  auto shard = _cmap->get_shard(key);
+  applog.debug("put key {} on shard {}", key, shard);
+
+  if (seastar::this_shard_id() == shard) {
+    return _shards.local().put(std::move(key), std::move(value));
+  }
+  return _shards.invoke_on(
+      shard, &store_shard::put, std::forward<const seastar::sstring&&>(key),
+      std::forward<const seastar::sstring&&>(value)
+  );
+}
+
+seastar::future<foo::store::value_ptr> sharded_store::get(
+    const seastar::sstring& key
+) {
+  auto shard = _cmap->get_shard(key);
+  applog.debug("get key {} on shard {}", key, shard);
+  return _shards.invoke_on(shard, &store_shard::get, key);
 }
 
 }  // namespace store

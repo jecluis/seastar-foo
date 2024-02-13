@@ -8,16 +8,15 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/log.hh>
 
+#include "store_value.hh"
+
 static seastar::logger applog(__FILE__);
 
 namespace foo {
 
 namespace cache {
 
-bool cache::put(
-    const seastar::sstring&& key, const seastar::sstring&& value, bool local
-) {
-  applog.debug("put key '{}' into cache", key);
+void cache::_drop(const seastar::sstring& key) {
   auto it = find(key);
   if (it != _cache.end()) {
     // exists, replace
@@ -25,13 +24,10 @@ bool cache::put(
     auto& existing = *it;
     remove_item(existing, false);
   }
-  cache_item* new_item =
-      (local ? new cache_item(std::move(key), std::move(value), _ttl)
-             : new cache_item(
-                   std::forward<const seastar::sstring&&>(key),
-                   std::forward<const seastar::sstring&&>(value), _ttl
-               ));
-  size_t required_size = item_size(*new_item);
+}
+
+bool cache::_put(cache_item* item) {
+  size_t required_size = item_size(*item);
 
   try {
     find_cache_space(required_size);
@@ -42,10 +38,10 @@ bool cache::put(
     return false;
   }
 
-  _cache.insert(*new_item);
-  _lru.push_front(*new_item);
-  _exp_timers.insert(*new_item);
-  intrusive_ptr_add_ref(new_item);
+  _cache.insert(*item);
+  _lru.push_front(*item);
+  _exp_timers.insert(*item);
+  intrusive_ptr_add_ref(item);
   // This should not be needed, because the item we're adding will always have
   // a later timeout than whatever is the next timeout, except if this item is
   // the only one in the cache and was thus removed earlier in this function.
@@ -54,10 +50,32 @@ bool cache::put(
   _timer.rearm(_exp_timers.get_next_timeout());
   _estimated_cache_size += required_size;
   applog.debug(
-      "added new entry: key '{}', required size '{}', cache size '{}'", key,
-      required_size, _estimated_cache_size
+      "added new entry: key '{}', required size '{}', cache size '{}'",
+      item->key(), required_size, _estimated_cache_size
   );
   return true;
+}
+
+bool cache::put(
+    const seastar::sstring&& key, const seastar::sstring&& value, bool local
+) {
+  applog.debug("put key '{}' into cache", key);
+
+  _drop(key);
+  cache_item* new_item =
+      (local ? new cache_item(std::move(key), std::move(value), _ttl)
+             : new cache_item(
+                   std::forward<const seastar::sstring&&>(key),
+                   std::forward<const seastar::sstring&&>(value), _ttl
+               ));
+  return _put(new_item);
+}
+
+bool cache::put_ptr(const seastar::sstring& key, foo::store::value_ptr value) {
+  applog.debug("put key '{}' into cache", key);
+  _drop(key);
+  cache_item* new_item = new cache_item(key, value, _ttl);
+  return _put(new_item);
 }
 
 void cache::remove_item(cache_item& item, bool expired) {
@@ -82,7 +100,7 @@ bool cache::remove(const seastar::sstring& key) {
   return true;
 }
 
-cache_item_ptr cache::get(const seastar::sstring& key) {
+foo::store::value_ptr cache::get(const seastar::sstring& key) {
   applog.debug("get key '{}'", key);
   auto it = find(key);
   if (it == _cache.end()) {
@@ -92,7 +110,7 @@ cache_item_ptr cache::get(const seastar::sstring& key) {
   it->touch(_ttl);
   _lru.remove(*it);
   _lru.push_front(*it);
-  return cache_item_ptr(&*it);
+  return it->value();
 }
 
 }  // namespace cache

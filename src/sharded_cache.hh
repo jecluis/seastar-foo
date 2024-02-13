@@ -18,6 +18,7 @@
 #include <seastar/core/sstring.hh>
 
 #include "cache.hh"
+#include "store_value.hh"
 
 namespace foo {
 
@@ -36,7 +37,7 @@ class sharded_cache {
       const seastar::sstring&& key, const seastar::sstring&& value
   );
 
-  seastar::future<cache_item_ptr> get(const seastar::sstring& key);
+  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<bool> remove(const seastar::sstring& key);
 
  private:

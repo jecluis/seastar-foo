@@ -10,6 +10,8 @@
 #include <seastar/http/url.hh>
 #include <seastar/util/log.hh>
 
+#include "store_value.hh"
+
 static seastar::logger applog(__FILE__);
 
 namespace foo {
@@ -60,8 +62,8 @@ cache_get_handler::handle(
   applog.debug("obtain key '{}'", key);
 
   return _cache.get(key).then([rep = std::move(rep),
-                               key](foo::cache::cache_item_ptr item) mutable {
-    if (!item) {
+                               key](foo::store::value_ptr data) mutable {
+    if (!data) {
       applog.debug("key '{}' not available", key);
       rep->set_status(seastar::http::reply::status_type::not_found).done();
       return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
@@ -70,7 +72,8 @@ cache_get_handler::handle(
     }
 
     applog.debug("found item with key '{}'", key);
-    rep->write_body("text", item->value());
+    seastar::sstring body_text(data->data(), data->size());
+    rep->write_body("text", body_text);
     return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
         std::move(rep)
     );

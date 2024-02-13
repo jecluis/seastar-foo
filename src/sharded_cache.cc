@@ -11,6 +11,7 @@
 #include <seastar/util/log.hh>
 
 #include "cache.hh"
+#include "store_value.hh"
 
 static seastar::logger applog(__FILE__);
 
@@ -34,12 +35,13 @@ seastar::future<bool> sharded_cache::put(
   );
 }
 
-seastar::future<cache_item_ptr> sharded_cache::get(const seastar::sstring& key
+seastar::future<foo::store::value_ptr> sharded_cache::get(
+    const seastar::sstring& key
 ) {
   auto shard = get_shard_id(key);
   applog.debug("get key '{}' from shard {}", key, shard);
   if (seastar::this_shard_id() == shard) {
-    return seastar::make_ready_future<cache_item_ptr>(
+    return seastar::make_ready_future<foo::store::value_ptr>(
         _cache_peers.local().get(key)
     );
   }

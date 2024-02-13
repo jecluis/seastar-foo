@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/future.hh>
@@ -17,10 +18,10 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <set>
-#include <stdexcept>
 
 #include "cache.hh"
 #include "cmap.hh"
+#include "store_value.hh"
 
 namespace foo {
 
@@ -80,8 +81,7 @@ class store_bucket {
   seastar::future<> put(
       const seastar::sstring& key, const seastar::sstring& value
   );
-  seastar::future<std::unique_ptr<std::string>> get(const seastar::sstring& key
-  );
+  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<> remove(const seastar::sstring& key);
 };
 
@@ -113,28 +113,33 @@ class store_shard {
   seastar::future<> init();
 
   seastar::future<> put(
-      const seastar::sstring& key, const seastar::sstring& value
-  ) {
-    auto bucket = _cmap->get_bucket(key);
-    const auto target_shard = _cmap->get_shard(key);
-    if (target_shard != seastar::this_shard_id()) {
-      return seastar::make_exception_future(std::runtime_error("wrong shard"));
-    }
-
-    return seastar::make_ready_future<>();
-  }
+      const seastar::sstring&& key, const seastar::sstring&& value
+  );
+  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
 };
 
 class sharded_store {
   seastar::distributed<store_shard>& _shards;
+  const foo::consistent_map_ptr _cmap;
 
  public:
-  sharded_store(seastar::distributed<store_shard>& shards) : _shards(shards) {}
+  sharded_store(
+      seastar::distributed<store_shard>& shards, consistent_map_ptr cmap
+  )
+      : _shards(shards), _cmap(cmap) {}
 
   sharded_store(sharded_store&) = delete;
   sharded_store(const sharded_store&) = delete;
 
   ~sharded_store() = default;
+
+  seastar::future<> put(
+      const seastar::sstring&& key, const seastar::sstring&& value
+  );
+
+  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
+
+  seastar::future<bool> remove(const seastar::sstring& key);
 };
 
 seastar::future<uint32_t> open_or_create(

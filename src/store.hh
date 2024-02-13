@@ -128,8 +128,8 @@ class sharded_store {
   )
       : _shards(shards), _cmap(cmap) {}
 
-  sharded_store(sharded_store&) = delete;
-  sharded_store(const sharded_store&) = delete;
+  sharded_store(sharded_store&) = default;
+  sharded_store(const sharded_store&) = default;
 
   ~sharded_store() = default;
 

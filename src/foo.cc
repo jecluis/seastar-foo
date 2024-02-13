@@ -100,7 +100,9 @@ int main(int argc, char** argv) {
               foo::consistent_map(store_bucket_count, seastar::smp::count)
           );
 
-      foo::store::sharded_store store(store_shards, cmap);
+      auto store = seastar::make_lw_shared<foo::store::sharded_store>(
+          foo::store::sharded_store(std::ref(store_shards), cmap)
+      );
 
       applog.debug("httpd addr: {}", httpd_addr);
       applog.debug(

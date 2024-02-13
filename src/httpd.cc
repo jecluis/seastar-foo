@@ -19,7 +19,7 @@ namespace foo {
 namespace httpd {
 
 seastar::future<std::unique_ptr<seastar::http::reply>>
-cache_get_handler::handle(
+store_get_handler::handle(
     const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
     std::unique_ptr<seastar::http::reply> rep
 ) {

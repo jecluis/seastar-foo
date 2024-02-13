@@ -20,11 +20,11 @@ namespace httpd {
 
 constexpr int MAX_KEY_LEN = 255;
 
-class cache_get_handler : public seastar::httpd::handler_base {
+class store_get_handler : public seastar::httpd::handler_base {
   seastar::lw_shared_ptr<foo::store::sharded_store> _store;
 
  public:
-  cache_get_handler(seastar::lw_shared_ptr<foo::store::sharded_store> store)
+  store_get_handler(seastar::lw_shared_ptr<foo::store::sharded_store> store)
       : _store(store) {}
 
   virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(

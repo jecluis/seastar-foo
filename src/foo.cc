@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
                       r.add(
                           httpd::operation_type::GET,
                           httpd::url("/get").remainder("key"),
-                          new foo::httpd::cache_get_handler(store)
+                          new foo::httpd::store_get_handler(store)
                       );
                     });
                   })

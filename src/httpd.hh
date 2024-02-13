@@ -44,6 +44,18 @@ class store_put_handler : public seastar::httpd::handler_base {
   );
 };
 
+class store_delete_handler : public seastar::httpd::handler_base {
+  foo::store::sharded_store& _store;
+
+ public:
+  store_delete_handler(foo::store::sharded_store& store) : _store(store) {}
+
+  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
+      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
+      std::unique_ptr<seastar::http::reply> rep
+  );
+};
+
 }  // namespace httpd
 
 }  // namespace foo

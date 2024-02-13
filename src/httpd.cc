@@ -118,6 +118,27 @@ store_put_handler::handle(
       });
 }
 
+seastar::future<std::unique_ptr<seastar::http::reply>>
+store_delete_handler::handle(
+    const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
+    std::unique_ptr<seastar::http::reply> rep
+) {
+  applog.info("got DELETE request from {}", req->get_client_address());
+  auto key = _get_param_key(req.get());
+  if (!key) {
+    return _return_bad_request(std::move(rep));
+  }
+
+  applog.debug("delete key '{}'", *key);
+  return _store.remove(*key).then([rep = std::move(rep)](auto) mutable {
+    // delete always succeeds, even if no key was actually deleted.
+    rep->set_status(seastar::http::reply::status_type::ok).done();
+    return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
+        std::move(rep)
+    );
+  });
+}
+
 }  // namespace httpd
 
 }  // namespace foo

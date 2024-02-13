@@ -178,6 +178,11 @@ int main(int argc, char** argv) {
                           httpd::url("/put").remainder("key"),
                           new foo::httpd::store_put_handler(store)
                       );
+                      r.add(
+                          httpd::operation_type::DELETE,
+                          httpd::url("/remove").remainder("key"),
+                          new foo::httpd::store_delete_handler(store)
+                      );
                     });
                   })
                   .then([httpd_server, httpd_addr] {

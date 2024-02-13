@@ -227,17 +227,22 @@ bool bucket_manifest::exists(const std::string& key) {
   return (it != _key_to_fname_map.cend());
 }
 
-seastar::future<> bucket_manifest::remove(const std::string& key) {
+seastar::future<std::optional<std::string>> bucket_manifest::remove(
+    const std::string& key
+) {
   applog.debug("remove key '{}' from manifest", key);
   const auto& it = _key_to_fname_map.find(key);
   if (it == _key_to_fname_map.cend()) {
     applog.debug("key '{}' does not exist in manifest", key);
-    return seastar::make_ready_future<>();
+    return seastar::make_ready_future<std::optional<std::string>>(std::nullopt);
   }
-  _fname_set.erase(it->second);
+  auto fname = it->second;
+  _fname_set.erase(fname);
   _key_to_fname_map.erase(it);
 
-  return write_manifest();
+  return write_manifest().then([fname] {
+    return seastar::make_ready_future<std::optional<std::string>>(fname);
+  });
 }
 
 std::vector<std::string> bucket_manifest::list() {
@@ -311,7 +316,13 @@ seastar::future<foo::store::value_ptr> store_bucket::get(
 }
 
 seastar::future<> store_bucket::remove(const seastar::sstring& key) {
-  return seastar::make_ready_future<>();
+  return _manifest.remove(key).then([this](auto fname) {
+    if (fname) {
+      auto fpath = fmt::format("{}/{}", _path, *fname);
+      return seastar::remove_file(fpath);
+    }
+    return seastar::make_ready_future<>();
+  });
 }
 
 seastar::future<> store_shard::init() {
@@ -396,6 +407,26 @@ seastar::future<foo::store::value_ptr> store_shard::get(
   });
 }
 
+seastar::future<bool> store_shard::remove(const seastar::sstring& key) {
+  auto bucket = _cmap->get_bucket(key);
+  const auto target_shard = _cmap->get_shard(key);
+  if (target_shard != seastar::this_shard_id()) {
+    return seastar::make_exception_future<bool>(std::runtime_error("wrong shard"
+    ));
+  }
+
+  if (!_buckets.contains(bucket)) {
+    return seastar::make_exception_future<bool>(
+        std::runtime_error("expected to own bucket")
+    );
+  }
+
+  return _buckets[bucket]->remove(key).then([this, key] {
+    _cache.remove(key);
+    return seastar::make_ready_future<bool>(true);
+  });
+}
+
 seastar::future<> sharded_store::put(
     const seastar::sstring&& key, const seastar::sstring&& value
 ) {
@@ -417,6 +448,12 @@ seastar::future<foo::store::value_ptr> sharded_store::get(
   auto shard = _cmap->get_shard(key);
   applog.debug("get key {} on shard {}", key, shard);
   return _shards.invoke_on(shard, &store_shard::get, key);
+}
+
+seastar::future<bool> sharded_store::remove(const seastar::sstring& key) {
+  auto shard = _cmap->get_shard(key);
+  applog.debug("remove key {} on shard {}", key, shard);
+  return _shards.invoke_on(shard, &store_shard::remove, key);
 }
 
 }  // namespace store

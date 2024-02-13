@@ -53,7 +53,7 @@ class bucket_manifest {
   seastar::future<std::string> put(const std::string& key);
   std::optional<std::string> get(const std::string& key);
   bool exists(const std::string& key);
-  seastar::future<> remove(const std::string& key);
+  seastar::future<std::optional<std::string>> remove(const std::string& key);
   std::vector<std::string> list();
 
  private:
@@ -116,6 +116,7 @@ class store_shard {
       const seastar::sstring&& key, const seastar::sstring&& value
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
+  seastar::future<bool> remove(const seastar::sstring& key);
 };
 
 class sharded_store {

@@ -74,8 +74,8 @@ store_get_handler::handle(
 
   applog.debug("obtain key '{}'", *key);
 
-  return _store->get(*key).then([rep = std::move(rep),
-                                 key](foo::store::value_ptr data) mutable {
+  return _store.get(*key).then([rep = std::move(rep),
+                                key](foo::store::value_ptr data) mutable {
     if (!data) {
       applog.debug("key '{}' not available", *key);
       rep->set_status(seastar::http::reply::status_type::not_found).done();
@@ -110,7 +110,7 @@ store_put_handler::handle(
 
   applog.debug("add key '{}' size {}", *key, content_size);
 
-  return _store->put(std::move(insert_key), std::move(content))
+  return _store.put(std::move(insert_key), std::move(content))
       .then([rep = std::move(rep)]() mutable {
         rep->set_status(seastar::http::reply::status_type::ok).done();
         return seastar::make_ready_future<

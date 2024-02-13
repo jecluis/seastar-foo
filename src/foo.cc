@@ -48,6 +48,7 @@ static logger applog(__FILE__);
 
 int main(int argc, char** argv) {
   seastar::distributed<foo::store::store_shard> store_shards;
+  foo::store::sharded_store store(store_shards);
 
   app_template app;
 
@@ -97,9 +98,7 @@ int main(int argc, char** argv) {
               foo::consistent_map(store_bucket_count, seastar::smp::count)
           );
 
-      auto store = seastar::make_lw_shared<foo::store::sharded_store>(
-          foo::store::sharded_store(std::ref(store_shards), cmap)
-      );
+      store.init(cmap);
 
       applog.debug("httpd addr: {}", httpd_addr);
       applog.debug(
@@ -107,7 +106,10 @@ int main(int argc, char** argv) {
           cache_bucket_count
       );
 
-      engine().at_exit([&] { return store_shards.stop(); });
+      engine().at_exit([&] {
+        applog.info("stop store shards");
+        return store_shards.stop();
+      });
 
       return foo::store::open_or_create(store_path, store_bucket_count)
           .then([store_path](uint32_t num_buckets) {
@@ -135,8 +137,8 @@ int main(int argc, char** argv) {
               return shard.init();
             });
           })
-          .then([store, httpd_addr] {
-            return seastar::async([store, httpd_addr] {
+          .then([&store, httpd_addr] {
+            return seastar::async([&store, httpd_addr] {
               // keep httpd server alive for as long as the task is not interrupted.
               seastar::condition_variable httpd_cond;
 
@@ -164,8 +166,8 @@ int main(int argc, char** argv) {
                   .then([httpd_addr] {
                     applog.info("starting httpd server at {}", httpd_addr);
                   })
-                  .then([store, httpd_server] {
-                    (void)httpd_server->set_routes([store](httpd::routes& r) {
+                  .then([&store, httpd_server] {
+                    (void)httpd_server->set_routes([&store](httpd::routes& r) {
                       r.add(
                           httpd::operation_type::GET,
                           httpd::url("/get").remainder("key"),

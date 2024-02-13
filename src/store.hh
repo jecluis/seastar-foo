@@ -120,18 +120,17 @@ class store_shard {
 
 class sharded_store {
   seastar::distributed<store_shard>& _shards;
-  const foo::consistent_map_ptr _cmap;
+  foo::consistent_map_ptr _cmap;
 
  public:
-  sharded_store(
-      seastar::distributed<store_shard>& shards, consistent_map_ptr cmap
-  )
-      : _shards(shards), _cmap(cmap) {}
+  sharded_store(seastar::distributed<store_shard>& shards) : _shards(shards) {}
 
   sharded_store(sharded_store&) = default;
   sharded_store(const sharded_store&) = default;
 
   ~sharded_store() = default;
+
+  void init(consistent_map_ptr cmap) { _cmap = cmap; }
 
   seastar::future<> put(
       const seastar::sstring&& key, const seastar::sstring&& value

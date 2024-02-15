@@ -11,5 +11,6 @@ RUN ./install-dependencies.sh
 
 RUN dnf install -y clang
 RUN dnf install -y systemd-devel
+RUN dnf install -y compiler-rt
 
 CMD /bin/bash

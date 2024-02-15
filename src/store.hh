@@ -14,6 +14,7 @@
 #include <optional>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/future.hh>
+#include <seastar/core/rwlock.hh>
 #include <seastar/core/shard_id.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
@@ -55,7 +56,8 @@ class bucket_manifest {
   std::optional<std::string> get(const std::string& key);
   bool exists(const std::string& key);
   seastar::future<std::optional<std::string>> remove(const std::string& key);
-  std::set<std::string> list();
+  seastar::lw_shared_ptr<std::set<std::string>> list();
+  std::set<std::string> list2();
 
  private:
   seastar::future<> load_manifest();
@@ -84,7 +86,8 @@ class store_bucket {
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<> remove(const seastar::sstring& key);
-  seastar::future<std::set<std::string>> list();
+  void list(seastar::lw_shared_ptr<std::set<std::string>> lst);
+  std::set<std::string> list2();
 };
 
 class store_shard {
@@ -119,9 +122,52 @@ class store_shard {
   );
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<bool> remove(const seastar::sstring& key);
-  seastar::future<std::set<std::string>> list();
+  seastar::future<> list(seastar::lw_shared_ptr<std::set<std::string>> lst);
+  seastar::future<std::set<std::string>> list2();
 
   seastar::future<> stop();
+};
+
+class lst_holder {
+  seastar::rwlock _lock;
+  seastar::lw_shared_ptr<std::set<std::string>> _lst;
+  std::vector<std::set<std::string>> _shards;
+
+ public:
+  lst_holder()
+      : _lock(),
+        _lst(seastar::make_lw_shared<std::set<std::string>>()),
+        _shards(seastar::smp::count) {}
+  lst_holder(lst_holder&) = delete;
+  lst_holder(const lst_holder&) = delete;
+  ~lst_holder() = default;
+
+  // seastar::future<> insert(seastar::lw_shared_ptr<std::set<std::string>>
+  // other
+  seastar::future<> insert(seastar::lw_shared_ptr<std::set<std::string>> other);
+  seastar::future<> insert(const std::set<std::string>&& other);
+  void insert2(const std::set<std::string>&& other);
+  void agg(std::set<std::string>& res);
+  seastar::lw_shared_ptr<std::set<std::string>> get() { return _lst; }
+  size_t size() {
+    assert(_lst);
+    return _lst->size();
+  }
+  inline bool works() {
+    if (_lst) {
+      return true;
+    } else
+      return false;
+  }
+  std::string to_str() {
+    assert(_lst);
+    std::string res;
+    for (auto& k : *_lst) {
+      res += k;
+      res += '\n';
+    }
+    return res;
+  }
 };
 
 class sharded_store {
@@ -150,7 +196,8 @@ class sharded_store {
 
   seastar::future<bool> remove(const seastar::sstring& key);
 
-  seastar::future<std::set<std::string>> list();
+  seastar::future<> list(seastar::lw_shared_ptr<lst_holder> out_lst);
+  seastar::future<> list2(seastar::lw_shared_ptr<lst_holder> out_lst);
 };
 
 seastar::future<uint32_t> open_or_create(

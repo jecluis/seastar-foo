@@ -9,10 +9,12 @@
 #include <memory>
 #include <optional>
 #include <seastar/core/future.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/http/reply.hh>
 #include <seastar/http/url.hh>
 #include <seastar/util/log.hh>
 
-#include "seastar/http/reply.hh"
+#include "store.hh"
 #include "store_value.hh"
 
 static seastar::logger applog(__FILE__);
@@ -146,14 +148,19 @@ store_list_handler::handle(
 ) {
   applog.info("got list request from {}", req->get_client_address());
 
-  return _store.list().then([rep = std::move(rep)](auto lst) mutable {
-    std::string res;
-    for (auto& k : lst) {
-      res += k;
-      res += '\n';
+  auto lst = seastar::make_lw_shared<foo::store::lst_holder>();
+  return _store.list2(lst).then([lst, rep = std::move(rep)]() mutable {
+    std::set<std::string> res;
+    lst->agg(res);
+    applog.debug("process list from shards, size: {}", res.size());
+    std::string res_str;
+    for (auto& k : res) {
+      res_str += k;
+      res_str += '\n';
     }
-    rep->write_body("text", res);
+    rep->write_body("text", res_str);
     rep->set_status(seastar::http::reply::status_type::ok).done();
+    applog.debug("reply");
     return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
         std::move(rep)
     );

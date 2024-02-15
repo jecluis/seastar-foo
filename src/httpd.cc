@@ -149,7 +149,7 @@ store_list_handler::handle(
   applog.info("got list request from {}", req->get_client_address());
 
   auto lst = seastar::make_lw_shared<foo::store::lst_holder>();
-  return _store.list2(lst).then([lst, rep = std::move(rep)]() mutable {
+  return _store.list(lst).then([lst, rep = std::move(rep)]() mutable {
     std::set<std::string> res;
     lst->agg(res);
     applog.debug("process list from shards, size: {}", res.size());

@@ -44,6 +44,28 @@ inline value_ptr make_value_ptr_by_copy(const char* data, size_t size) {
   char* buf = new char[size];
   memcpy(buf, data, size);
   return make_value_ptr(buf, size);
+
+class store_insert_entry {
+  const std::string _key;
+  value_ptr _value;
+
+ public:
+  store_insert_entry(
+      const seastar::sstring& key, const seastar::sstring&& value
+  )
+      : _key(key),
+        _value(make_value_ptr_by_copy(value.c_str(), value.size())) {}
+
+  const seastar::sstring key() { return _key; }
+  value_ptr value() { return _value; }
+};
+
+using insert_entry_ptr = seastar::lw_shared_ptr<store_insert_entry>;
+
+inline insert_entry_ptr make_insert_entry_ptr(
+    const seastar::sstring& key, const seastar::sstring&& value
+) {
+  return seastar::make_lw_shared<store_insert_entry>(key, std::move(value));
 }
 
 }  // namespace store

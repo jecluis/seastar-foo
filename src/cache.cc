@@ -56,7 +56,7 @@ bool cache::_put(cache_item* item) {
   return true;
 }
 
-bool cache::put(
+bool cache::put2(
     const seastar::sstring&& key, const seastar::sstring&& value, bool local
 ) {
   applog.debug("put key '{}' into cache", key);
@@ -68,6 +68,15 @@ bool cache::put(
                    std::forward<const seastar::sstring&&>(key),
                    std::forward<const seastar::sstring&&>(value), _ttl
                ));
+  return _put(new_item);
+}
+
+bool cache::put(foo::store::insert_entry_ptr entry) {
+  const seastar::sstring& key = entry->key();
+  applog.debug("put key '{}' into cache", key);
+
+  _drop(key);
+  cache_item* new_item = new cache_item(key, entry->value(), _ttl);
   return _put(new_item);
 }
 

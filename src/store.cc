@@ -31,6 +31,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "seastar/core/sharded.hh"
 #include "store_value.hh"
 #include "utils.hh"
 
@@ -284,7 +285,7 @@ seastar::future<> store_bucket::init() {
       .then([this] { return _manifest.init(); });
 }
 
-seastar::future<> store_bucket::put(
+seastar::future<> store_bucket::put2(
     const seastar::sstring& key, foo::store::value_ptr value
 ) {
   return _manifest.put(key).then([this, value, key](auto fname) {
@@ -296,15 +297,64 @@ seastar::future<> store_bucket::put(
     );
     return seastar::with_file(
         seastar::open_file_dma(fpath, flags),
-        [value](auto& f) {
+        [value](auto& f) -> seastar::future<> {
           // applog.debug("value: {}", value);
-          return seastar::async([value, &f] {
-            (void)f.dma_write(0, value->data(), value->size()).get();
-            (void)f.flush().get();
-          });
+          co_await f.dma_write(0, value->data(), value->size());
+          co_await f.flush();
+          // return seastar::async([value, &f] {
+          //   (void)f.dma_write(0, value->data(), value->size()).get();
+          //   (void)f.flush().get();
+          // });
         }
     );
   });
+}
+
+seastar::future<> store_bucket::put3(
+    const seastar::sstring& key, foo::store::value_ptr value
+) {
+  applog.debug(
+      "write value for key '{}' on shard {}", key, seastar::this_shard_id()
+  );
+  auto k = std::string(key.begin(), key.end());
+  auto fname = co_await _manifest.put(k);
+  auto fpath = fmt::format("{}/{}", _path, fname);
+  auto flags = seastar::open_flags::create | seastar::open_flags::truncate |
+               seastar::open_flags::rw;
+  assert(value);
+  applog.debug("write to file {}", fpath);
+  applog.debug("write key {}", key);
+  applog.debug("write value size {}", value->size());
+  applog.debug(
+      "write contents to file {} key {} size {}", fpath, key, value->size()
+  );
+  auto f = co_await seastar::open_file_dma(fpath, flags);
+  co_await f.dma_write(0, value->data(), value->size());
+  co_await f.flush();
+  co_await f.close();
+}
+
+seastar::future<> store_bucket::put(foo::store::insert_entry_ptr entry) {
+  const seastar::sstring& key = entry->key();
+  auto value = entry->value();
+  applog.debug(
+      "write value for key '{}' on shard {}", key, seastar::this_shard_id()
+  );
+  auto k = std::string(key.begin(), key.end());
+  auto fname = co_await _manifest.put(k);
+  auto fpath = fmt::format("{}/{}", _path, fname);
+  auto flags = seastar::open_flags::create | seastar::open_flags::truncate |
+               seastar::open_flags::rw;
+  applog.debug("write to file {}", fpath);
+  applog.debug("write key {}", key);
+  applog.debug("write value size {}", value->size());
+  applog.debug(
+      "write contents to file {} key {} size {}", fpath, key, value->size()
+  );
+  auto f = co_await seastar::open_file_dma(fpath, flags);
+  co_await f.dma_write(0, value->data(), value->size());
+  co_await f.flush();
+  co_await f.close();
 }
 
 // Read data from disk
@@ -365,7 +415,7 @@ seastar::future<> store_shard::init() {
   );
 }
 
-seastar::future<> store_shard::put(
+seastar::future<> store_shard::put2(
     const seastar::sstring&& key, const seastar::sstring&& value
 ) {
   auto bucket = _cmap.get_bucket(key);
@@ -383,13 +433,13 @@ seastar::future<> store_shard::put(
   // we need some persistence for the value being passed around
   auto v = make_value_ptr_by_copy(value.c_str(), value.size());
   return _buckets[bucket]
-      ->put(key, v)
+      ->put2(key, v)
       .then([this, key = std::move(key), value = std::move(value)] {
         // NOTE(joao): We're not entirely sure whether this is going to be
         // annoying, but we'll just std::move() the values to the cache,
         // regardless of whether we're getting them from this shard or from a
         // remote shard.
-        return _cache.put(std::move(key), std::move(value));
+        return _cache.put2(std::move(key), std::move(value));
       })
       .then([](auto res) {
         if (!res) {
@@ -397,6 +447,47 @@ seastar::future<> store_shard::put(
         }
         return seastar::make_ready_future<>();
       });
+}
+
+seastar::future<> store_shard::put3(
+    const seastar::sstring&& key, const seastar::sstring&& value
+) {
+  auto bucket = _cmap.get_bucket(key);
+  const auto target_shard = _cmap.get_shard(key);
+  if (target_shard != seastar::this_shard_id()) {
+    throw std::runtime_error("wrong shard");
+  }
+
+  if (!_buckets.contains(bucket)) {
+    throw std::runtime_error("expected to own bucket");
+  }
+  auto v = make_value_ptr_by_copy(value.c_str(), value.size());
+
+  std::string s(key.begin(), key.end());
+  // co_await _buckets[bucket]->put(s, v);
+  co_await _buckets[bucket]->put3(std::ref(key), v);
+  auto res = _cache.put2(std::move(key), std::move(value));
+  if (!res) {
+    applog.error("unable to store key/value in cache");
+  }
+}
+
+seastar::future<> store_shard::put(foo::store::insert_entry_ptr entry) {
+  const seastar::sstring& key = entry->key();
+  auto bucket = _cmap.get_bucket(key);
+  const auto target_shard = _cmap.get_shard(key);
+  if (target_shard != seastar::this_shard_id()) {
+    throw std::runtime_error("wrong shard");
+  }
+
+  if (!_buckets.contains(bucket)) {
+    throw std::runtime_error("expected to own bucket");
+  }
+  co_await _buckets[bucket]->put(entry);
+  auto res = _cache.put(entry);
+  if (!res) {
+    applog.error("unable to store key/value in cache");
+  }
 }
 
 seastar::future<foo::store::value_ptr> store_shard::get(
@@ -466,6 +557,21 @@ seastar::future<> store_shard::stop() {
   return seastar::make_ready_future<>();
 }
 
+seastar::future<> sharded_store::put2(
+    const seastar::sstring&& key, const seastar::sstring&& value
+) {
+  auto shard = _cmap->get_shard(key);
+  applog.debug("put key {} on shard {}", key, shard);
+
+  if (seastar::this_shard_id() == shard) {
+    return _shards.local().put2(std::move(key), std::move(value));
+  }
+  return _shards.invoke_on(
+      shard, &store_shard::put2, std::forward<const seastar::sstring&&>(key),
+      std::forward<const seastar::sstring&&>(value)
+  );
+}
+
 seastar::future<> sharded_store::put(
     const seastar::sstring&& key, const seastar::sstring&& value
 ) {
@@ -473,11 +579,18 @@ seastar::future<> sharded_store::put(
   applog.debug("put key {} on shard {}", key, shard);
 
   if (seastar::this_shard_id() == shard) {
-    return _shards.local().put(std::move(key), std::move(value));
+    auto item = foo::store::make_insert_entry_ptr(key, std::move(value));
+    return _shards.local().put(item);
   }
   return _shards.invoke_on(
-      shard, &store_shard::put, std::forward<const seastar::sstring&&>(key),
-      std::forward<const seastar::sstring&&>(value)
+      shard,
+      [key = std::move(key),
+       value = std::move(value)](store_shard& s) -> seastar::future<> {
+        // we need to allocate the shared_ptr here so it doesn't cross shard
+        // boundaries.
+        auto item = foo::store::make_insert_entry_ptr(key, std::move(value));
+        co_await s.put(item);
+      }
   );
 }
 

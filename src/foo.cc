@@ -93,12 +93,7 @@ int main(int argc, char** argv) {
       size_t store_bucket_count = config["store-buckets"].as<size_t>();
       seastar::sstring store_path = config["store-path"].as<seastar::sstring>();
 
-      foo::consistent_map_ptr cmap =
-          seastar::make_lw_shared<foo::consistent_map>(
-              foo::consistent_map(store_bucket_count, seastar::smp::count)
-          );
-
-      store.init(cmap);
+      store.init(store_bucket_count);
 
       applog.debug("httpd addr: {}", httpd_addr);
       applog.debug(
@@ -118,18 +113,13 @@ int main(int argc, char** argv) {
             );
             return make_ready_future<>();
           })
-          .then([cmap] {
-            auto buckets = cmap->get_shard_buckets(seastar::this_shard_id());
-            applog.debug("owned buckets: {}", buckets.size());
-            for (auto& bid : buckets) {
-              applog.debug("owning bucket {}", bid);
-            }
-          })
-          .then([&store_shards, store_path, cmap, cache_bucket_count,
-                 cache_size, cache_ttl] {
+          .then([&store_shards, store_path, store_bucket_count,
+                 cache_bucket_count, cache_size, cache_ttl] {
             applog.debug("start store shards");
+            foo::consistent_map cmap(store_bucket_count, seastar::smp::count);
             return store_shards.start(
-                store_path, cmap, cache_bucket_count, cache_size, cache_ttl
+                store_path, std::move(cmap), cache_bucket_count, cache_size,
+                cache_ttl
             );
           })
           .then([&store_shards] {

@@ -15,6 +15,7 @@
 #include <seastar/core/distributed.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/shard_id.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <set>
@@ -90,7 +91,7 @@ class store_shard {
   using store_bucket_ptr = std::unique_ptr<store_bucket>;
 
   const seastar::sstring _store_path;
-  const foo::consistent_map_ptr _cmap;
+  const foo::consistent_map _cmap;
   foo::cache::cache _cache;
 
   // associative map of store buckets for this shard
@@ -98,11 +99,11 @@ class store_shard {
 
  public:
   store_shard(
-      const seastar::sstring& store_path, foo::consistent_map_ptr cmap,
+      const seastar::sstring& store_path, foo::consistent_map&& cmap,
       size_t cache_bucket_count, size_t max_cache_size, uint32_t cache_ttl
   )
       : _store_path(store_path),
-        _cmap(cmap),
+        _cmap(std::move(cmap)),
         _cache(cache_bucket_count, max_cache_size, cache_ttl) {}
 
   store_shard(store_shard&) = delete;
@@ -125,7 +126,7 @@ class store_shard {
 
 class sharded_store {
   seastar::distributed<store_shard>& _shards;
-  foo::consistent_map_ptr _cmap;
+  seastar::lw_shared_ptr<foo::consistent_map> _cmap;
 
  public:
   sharded_store(seastar::distributed<store_shard>& shards) : _shards(shards) {}
@@ -135,7 +136,11 @@ class sharded_store {
 
   ~sharded_store() = default;
 
-  void init(consistent_map_ptr cmap) { _cmap = cmap; }
+  void init(uint32_t store_bucket_count) {
+    _cmap = seastar::make_lw_shared<foo::consistent_map>(
+        foo::consistent_map(store_bucket_count, seastar::smp::count)
+    );
+  }
 
   seastar::future<> put(
       const seastar::sstring&& key, const seastar::sstring&& value

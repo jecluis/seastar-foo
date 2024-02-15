@@ -28,6 +28,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "seastar/core/smp.hh"
 #include "store_value.hh"
 #include "utils.hh"
 
@@ -346,7 +347,7 @@ seastar::future<std::set<std::string>> store_bucket::list() {
 
 seastar::future<> store_shard::init() {
   auto shard_id = seastar::this_shard_id();
-  auto bucket_ids = _cmap->get_shard_buckets(shard_id);
+  auto bucket_ids = _cmap.get_shard_buckets(shard_id);
 
   for (auto& bid : bucket_ids) {
     auto bucket_path = fmt::format("{}/{}", _store_path, bid);
@@ -365,8 +366,8 @@ seastar::future<> store_shard::init() {
 seastar::future<> store_shard::put(
     const seastar::sstring&& key, const seastar::sstring&& value
 ) {
-  auto bucket = _cmap->get_bucket(key);
-  const auto target_shard = _cmap->get_shard(key);
+  auto bucket = _cmap.get_bucket(key);
+  const auto target_shard = _cmap.get_shard(key);
   if (target_shard != seastar::this_shard_id()) {
     return seastar::make_exception_future<>(std::runtime_error("wrong shard"));
   }
@@ -399,8 +400,8 @@ seastar::future<> store_shard::put(
 seastar::future<foo::store::value_ptr> store_shard::get(
     const seastar::sstring& key
 ) {
-  auto bucket = _cmap->get_bucket(key);
-  const auto target_shard = _cmap->get_shard(key);
+  auto bucket = _cmap.get_bucket(key);
+  const auto target_shard = _cmap.get_shard(key);
   if (target_shard != seastar::this_shard_id()) {
     return seastar::make_exception_future<foo::store::value_ptr>(
         std::runtime_error("wrong shard")
@@ -430,8 +431,8 @@ seastar::future<foo::store::value_ptr> store_shard::get(
 }
 
 seastar::future<bool> store_shard::remove(const seastar::sstring& key) {
-  auto bucket = _cmap->get_bucket(key);
-  const auto target_shard = _cmap->get_shard(key);
+  auto bucket = _cmap.get_bucket(key);
+  const auto target_shard = _cmap.get_shard(key);
   if (target_shard != seastar::this_shard_id()) {
     return seastar::make_exception_future<bool>(std::runtime_error("wrong shard"
     ));

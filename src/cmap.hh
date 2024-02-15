@@ -62,6 +62,4 @@ class consistent_map {
   }
 };
 
-using consistent_map_ptr = seastar::lw_shared_ptr<consistent_map>;
-
 }  // namespace foo

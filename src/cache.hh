@@ -69,17 +69,6 @@ class cache_item {
 
  public:
   cache_item(
-      const seastar::sstring&& key, const seastar::sstring&& value, uint32_t ttl
-  )
-      : _key(key), _refcnt(0) {
-    // move value data to a shared_ptr created by us.
-    char* buf = new char[value.size()];
-    memcpy(buf, value.c_str(), value.size());
-    auto v = foo::store::make_value_ptr(buf, value.size());
-    init(v, ttl);
-  }
-
-  cache_item(
       const seastar::sstring& key, foo::store::value_ptr value, uint32_t ttl
   )
       : _key(key), _refcnt(0) {

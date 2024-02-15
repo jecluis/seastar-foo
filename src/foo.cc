@@ -132,8 +132,8 @@ int main(int argc, char** argv) {
               // keep httpd server alive for as long as the task is not interrupted.
               seastar::condition_variable httpd_cond;
 
-              auto httpd_server = new httpd::http_server_control();
-
+              auto httpd_server =
+                  seastar::make_lw_shared<httpd::http_server_control>();
               // ensure we stop the httpd server when we exit, probably because of
               // an interrupt.
               engine().at_exit([httpd_server, &httpd_cond] {

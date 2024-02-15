@@ -79,12 +79,6 @@ class store_bucket {
 
   seastar::future<> init();
 
-  seastar::future<> put3(
-      const seastar::sstring& key, foo::store::value_ptr value
-  );
-  seastar::future<> put2(
-      const seastar::sstring& key, foo::store::value_ptr value
-  );
   seastar::future<> put(foo::store::insert_entry_ptr entry);
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<> remove(const seastar::sstring& key);
@@ -118,12 +112,6 @@ class store_shard {
   // init this store shard, populate its buckets
   seastar::future<> init();
 
-  seastar::future<> put2(
-      const seastar::sstring&& key, const seastar::sstring&& value
-  );
-  seastar::future<> put3(
-      const seastar::sstring&& key, const seastar::sstring&& value
-  );
   seastar::future<> put(foo::store::insert_entry_ptr entry);
   seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
   seastar::future<bool> remove(const seastar::sstring& key);
@@ -163,9 +151,6 @@ class sharded_store {
     );
   }
 
-  seastar::future<> put2(
-      const seastar::sstring&& key, const seastar::sstring&& value
-  );
   seastar::future<> put(
       const seastar::sstring&& key, const seastar::sstring&& value
   );

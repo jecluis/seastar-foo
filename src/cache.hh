@@ -201,10 +201,6 @@ class cache {
     return _cache.find(key, std::hash<seastar::sstring>(), item_cmp());
   }
 
-  bool put2(
-      const seastar::sstring&& key, const seastar::sstring&& value,
-      bool local = true
-  );
   bool put(foo::store::insert_entry_ptr entry);
   // unfortunately, it seems 'invoke_on' gets confused if we have two 'put()'
   // functions with different arguments.

@@ -17,9 +17,9 @@
 #include <seastar/core/temporary_buffer.hh>
 
 #include "cmap.hh"
+#include "store/item.hh"
 #include "store/lst.hh"
 #include "store/shard.hh"
-#include "store_item.hh"
 
 namespace foo {
 

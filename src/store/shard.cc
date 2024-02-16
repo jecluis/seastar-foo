@@ -13,7 +13,7 @@
 #include <seastar/util/log.hh>
 #include <stdexcept>
 
-#include "store_item.hh"
+#include "store/item.hh"
 
 static seastar::logger applog(__FILE__);
 

@@ -8,8 +8,8 @@
 
 #include <seastar/core/future.hh>
 
+#include "store/item.hh"
 #include "store/manifest.hh"
-#include "store_item.hh"
 
 namespace foo {
 

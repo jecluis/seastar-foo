@@ -17,7 +17,7 @@
 #include "cmap.hh"
 #include "seastar/core/future.hh"
 #include "store/bucket.hh"
-#include "store_item.hh"
+#include "store/item.hh"
 
 namespace foo {
 

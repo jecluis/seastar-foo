@@ -21,9 +21,9 @@
 #include <stdexcept>
 #include <utility>
 
+#include "store/item.hh"
 #include "store/lst.hh"
 #include "store/shard.hh"
-#include "store_item.hh"
 
 static seastar::logger applog(__FILE__);
 

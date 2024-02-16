@@ -10,7 +10,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/util/log.hh>
 
-#include "store_item.hh"
+#include "store/item.hh"
 
 static seastar::logger applog(__FILE__);
 

@@ -22,7 +22,7 @@
 
 #include "cache.hh"
 #include "cmap.hh"
-#include "store_value.hh"
+#include "store_item.hh"
 
 namespace foo {
 

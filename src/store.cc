@@ -31,7 +31,7 @@
 #include <stdexcept>
 #include <utility>
 
-#include "store_value.hh"
+#include "store_item.hh"
 #include "utils.hh"
 
 static seastar::logger applog(__FILE__);

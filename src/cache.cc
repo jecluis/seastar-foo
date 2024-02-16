@@ -8,7 +8,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/log.hh>
 
-#include "store_value.hh"
+#include "store_item.hh"
 
 static seastar::logger applog(__FILE__);
 

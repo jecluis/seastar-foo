@@ -29,7 +29,7 @@
 #include <seastar/core/timer-set.hh>
 #include <seastar/util/log.hh>
 
-#include "store_value.hh"
+#include "store_item.hh"
 
 namespace foo {
 namespace cache {

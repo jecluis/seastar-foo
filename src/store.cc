@@ -7,6 +7,7 @@
 #include "store.hh"
 
 #include <boost/lexical_cast.hpp>
+#include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <cstdint>
 #include <seastar/core/file-types.hh>
 #include <seastar/core/file.hh>
@@ -37,23 +38,22 @@ seastar::future<> create_store(
 ) {
   applog.info("creating store at {}", path);
 
-  return seastar::make_directory(path).then([path, num_buckets] {
-    auto fname = fmt::format("{}/num_buckets", path);
-    auto flags = seastar::open_flags::create | seastar::open_flags::rw;
-    applog.debug("write num buckets {} to file", num_buckets);
-    auto buckets_str = fmt::format("{}", num_buckets);
+  // fname is the only variable that requires 'path' after calling
+  // 'make_directory()'. We need to keep in mind that we need this value in our
+  // context, and that we may lose 'path' (because it's a reference from
+  // somewhere else) while calling 'make_directory()' -- 'path' may not live
+  // long enough for the rest of this function to finish.
+  auto fname = fmt::format("{}/num_buckets", path);
 
-    return seastar::with_file(
-        seastar::open_file_dma(fname, flags),
-        [buckets_str = std::move(buckets_str)](seastar::file& f) {
-          // run async, ensure we wait for dma_write() while we hold
-          // 'buckets_str'.
-          return seastar::async([buckets_str = std::move(buckets_str), &f] {
-            (void)f.dma_write(0, buckets_str.c_str(), buckets_str.size()).get();
-          });
-        }
-    );
-  });
+  co_await seastar::make_directory(path);
+  auto flags = seastar::open_flags::create | seastar::open_flags::rw;
+  applog.debug("write num buckets {} to file", num_buckets);
+  auto buckets_str = fmt::format("{}", num_buckets);
+
+  auto f = co_await seastar::open_file_dma(fname, flags);
+  co_await f.dma_write(0, buckets_str.c_str(), buckets_str.size());
+  co_await f.flush();
+  co_await f.close();
 }
 
 // Opens a store directory, returning the number of buckets being used.
@@ -62,29 +62,16 @@ seastar::future<uint32_t> open_store(const seastar::sstring& path) {
   auto flags = seastar::open_flags::ro;
   applog.debug("read num buckets file at {}", fname);
 
-  return seastar::with_file(
-      seastar::open_file_dma(fname, flags),
-      [](seastar::file& f) {
-        auto fsize = f.size().get();
-        assert(fsize > 0);
+  auto f = co_await seastar::open_file_dma(fname, flags);
+  auto fsize = co_await f.size();
+  assert(fsize > 0);
 
-        return f.dma_read_exactly<char>(0, fsize).then(
-            [](seastar::temporary_buffer<char> tbuf) {
-              try {
-                return seastar::make_ready_future<uint32_t>(
-                    boost::lexical_cast<uint32_t>(tbuf.get(), tbuf.size())
-                );
-              } catch (const boost::bad_lexical_cast&) {
-                return seastar::make_exception_future<uint32_t>(
-                    std::runtime_error(
-                        "unable to obtain store's number of buckets"
-                    )
-                );
-              }
-            }
-        );
-      }
-  );
+  auto buf = co_await f.dma_read_exactly<char>(0, fsize);
+  try {
+    co_return boost::lexical_cast<uint32_t>(buf.get(), buf.size());
+  } catch (const boost::bad_lexical_cast&) {
+    throw std::runtime_error("unable to obtain store's number of buckets");
+  }
 }
 
 // Either open an existing store, or create it if it doesn't exist.
@@ -93,22 +80,20 @@ seastar::future<uint32_t> open_store(const seastar::sstring& path) {
 seastar::future<uint32_t> open_or_create(
     const seastar::sstring& path, uint32_t num_buckets
 ) {
-  return seastar::engine().file_type(path).then(
-      [path, num_buckets](std::optional<seastar::directory_entry_type> st) {
-        if (!st.has_value()) {
-          // create directory, init.
-          return create_store(path, num_buckets).then([num_buckets] {
-            return seastar::make_ready_future<uint32_t>(num_buckets);
-          });
-        } else if (*st != seastar::directory_entry_type::directory) {
-          return seastar::make_exception_future<uint32_t>(std::runtime_error(
-              fmt::format("path {} exists but is not a directory", path)
-          ));
-        }
+  const seastar::sstring spath(path);
 
-        return open_store(path);
-      }
-  );
+  auto ftype = co_await seastar::engine().file_type(spath);
+  if (!ftype.has_value()) {
+    co_await create_store(spath, num_buckets);
+    co_return num_buckets;
+
+  } else if (*ftype != seastar::directory_entry_type::directory) {
+    throw std::runtime_error(
+        fmt::format("path {} exists but is not a directory", spath)
+    );
+  }
+
+  co_return co_await open_store(spath);
 }
 
 seastar::future<> sharded_store::put(

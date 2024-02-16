@@ -383,19 +383,19 @@ seastar::future<> store_shard::put(foo::store::insert_entry_ptr entry) {
   }
 }
 
-seastar::future<foo::store::value_ptr> store_shard::get(
+seastar::future<foo::store::foreign_value_ptr> store_shard::get(
     const seastar::sstring& key
 ) {
   auto bucket = _cmap.get_bucket(key);
   const auto target_shard = _cmap.get_shard(key);
   if (target_shard != seastar::this_shard_id()) {
-    return seastar::make_exception_future<foo::store::value_ptr>(
+    return seastar::make_exception_future<foo::store::foreign_value_ptr>(
         std::runtime_error("wrong shard")
     );
   }
 
   if (!_buckets.contains(bucket)) {
-    return seastar::make_exception_future<foo::store::value_ptr>(
+    return seastar::make_exception_future<foo::store::foreign_value_ptr>(
         std::runtime_error("expected to own bucket")
     );
   }
@@ -404,7 +404,9 @@ seastar::future<foo::store::value_ptr> store_shard::get(
   if (cache_value) {
     // in cache, return value
     applog.debug("obtained key '{}' from cache", key);
-    return seastar::make_ready_future<foo::store::value_ptr>(cache_value);
+    return seastar::make_ready_future<foo::store::foreign_value_ptr>(
+        foo::store::make_foreign_value_ptr(cache_value)
+    );
   }
 
   // must obtain from disk
@@ -412,7 +414,9 @@ seastar::future<foo::store::value_ptr> store_shard::get(
     if (data) {
       _cache.put_ptr(key, data);
     }
-    return seastar::make_ready_future<foo::store::value_ptr>(data);
+    return seastar::make_ready_future<foo::store::foreign_value_ptr>(
+        foo::store::make_foreign_value_ptr(data)
+    );
   });
 }
 
@@ -472,7 +476,7 @@ seastar::future<> sharded_store::put(
   );
 }
 
-seastar::future<foo::store::value_ptr> sharded_store::get(
+seastar::future<foo::store::foreign_value_ptr> sharded_store::get(
     const seastar::sstring& key
 ) {
   auto shard = _cmap->get_shard(key);

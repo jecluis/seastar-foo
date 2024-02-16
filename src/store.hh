@@ -113,7 +113,8 @@ class store_shard {
   seastar::future<> init();
 
   seastar::future<> put(foo::store::insert_entry_ptr entry);
-  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
+  seastar::future<foo::store::foreign_value_ptr> get(const seastar::sstring& key
+  );
   seastar::future<bool> remove(const seastar::sstring& key);
   seastar::future<std::set<std::string>> list();
 
@@ -155,7 +156,8 @@ class sharded_store {
       const seastar::sstring&& key, const seastar::sstring&& value
   );
 
-  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
+  seastar::future<foo::store::foreign_value_ptr> get(const seastar::sstring& key
+  );
 
   seastar::future<bool> remove(const seastar::sstring& key);
 

@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 
@@ -38,6 +39,7 @@ class store_value {
 };
 
 using value_ptr = seastar::lw_shared_ptr<store_value>;
+using foreign_value_ptr = seastar::foreign_ptr<value_ptr>;
 
 inline value_ptr make_value_ptr(const char* data, size_t size) {
   return seastar::make_lw_shared<store_value>(data, size);
@@ -45,6 +47,10 @@ inline value_ptr make_value_ptr(const char* data, size_t size) {
 
 inline value_ptr make_value_ptr_by_copy(const char* data, size_t size) {
   return make_value_ptr(data, size);
+}
+
+inline foreign_value_ptr make_foreign_value_ptr(value_ptr value) {
+  return seastar::make_foreign<value_ptr>(value);
 }
 
 class store_insert_entry {

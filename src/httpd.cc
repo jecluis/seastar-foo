@@ -15,7 +15,6 @@
 #include <seastar/util/log.hh>
 
 #include "store.hh"
-#include "store_value.hh"
 
 static seastar::logger applog(__FILE__);
 
@@ -76,8 +75,7 @@ store_get_handler::handle(
 
   applog.debug("obtain key '{}'", *key);
 
-  return _store.get(*key).then([rep = std::move(rep),
-                                key](foo::store::value_ptr data) mutable {
+  return _store.get(*key).then([rep = std::move(rep), key](auto data) mutable {
     if (!data) {
       applog.debug("key '{}' not available", *key);
       rep->set_status(seastar::http::reply::status_type::not_found).done();

@@ -22,6 +22,7 @@
 #include "cache.hh"
 #include "cmap.hh"
 #include "store/bucket.hh"
+#include "store/lst.hh"
 #include "store_item.hh"
 
 namespace foo {
@@ -63,19 +64,6 @@ class store_shard {
   seastar::future<std::set<std::string>> list();
 
   seastar::future<> stop();
-};
-
-class lst_holder {
-  std::vector<std::set<std::string>> _shards;
-
- public:
-  lst_holder() : _shards(seastar::smp::count) {}
-  lst_holder(lst_holder&) = delete;
-  lst_holder(const lst_holder&) = delete;
-  ~lst_holder() = default;
-
-  void insert(const std::set<std::string>&& other);
-  void agg(std::set<std::string>& res);
 };
 
 class sharded_store {

@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "store/lst.hh"
 #include "store_item.hh"
 
 static seastar::logger applog(__FILE__);
@@ -262,17 +263,6 @@ seastar::future<bool> sharded_store::remove(const seastar::sstring& key) {
   return _shards.invoke_on(shard, &store_shard::remove, key);
 }
 
-void lst_holder::insert(const std::set<std::string>&& other) {
-  applog.debug("do lst_holder insert2");
-  auto id = seastar::this_shard_id();
-  _shards[id] = std::move(other);
-}
-
-void lst_holder::agg(std::set<std::string>& res) {
-  for (auto& keys : _shards) {
-    res.insert(keys.cbegin(), keys.cend());
-  }
-}
 struct op_holder {
   std::atomic<int> op;
 

@@ -54,7 +54,7 @@ class store_shard {
   seastar::future<foo::store::foreign_value_ptr> get(
       foo::store::store_key_ptr key
   );
-  seastar::future<bool> remove(const seastar::sstring& key);
+  seastar::future<> remove(const seastar::sstring& key);
   seastar::future<std::set<std::string>> list();
 
   seastar::future<> stop();

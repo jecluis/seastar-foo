@@ -85,24 +85,21 @@ seastar::future<foo::store::foreign_value_ptr> store_shard::get(
   co_return foo::store::make_foreign_value_ptr(data);
 }
 
-seastar::future<bool> store_shard::remove(const seastar::sstring& key) {
+seastar::future<> store_shard::remove(const seastar::sstring& key) {
   auto bucket = _cmap.get_bucket(key);
   const auto target_shard = _cmap.get_shard(key);
   if (target_shard != seastar::this_shard_id()) {
-    return seastar::make_exception_future<bool>(std::runtime_error("wrong shard"
-    ));
+    throw std::runtime_error("wrong shard");
   }
 
   if (!_buckets.contains(bucket)) {
-    return seastar::make_exception_future<bool>(
-        std::runtime_error("expected to own bucket")
-    );
+    throw std::runtime_error("expected to own bucket");
   }
 
-  return _buckets[bucket]->remove(key).then([this, key] {
-    _cache.remove(key);
-    return seastar::make_ready_future<bool>(true);
-  });
+  // make 'key' live through 'co_await', even if the original 'key' goes away.
+  const seastar::sstring skey(key);
+  co_await _buckets[bucket]->remove(skey);
+  _cache.remove(skey);
 }
 
 seastar::future<std::set<std::string>> store_shard::list() {

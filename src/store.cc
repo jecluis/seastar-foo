@@ -159,7 +159,7 @@ seastar::future<foo::store::foreign_value_ptr> sharded_store::get(
   });
 }
 
-seastar::future<bool> sharded_store::remove(const seastar::sstring& key) {
+seastar::future<> sharded_store::remove(const seastar::sstring& key) {
   auto shard = _cmap->get_shard(key);
   applog.debug("remove key {} on shard {}", key, shard);
   return _shards.invoke_on(shard, &store_shard::remove, key);

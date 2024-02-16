@@ -50,7 +50,7 @@ class sharded_store {
   seastar::future<foo::store::foreign_value_ptr> get(const seastar::sstring& key
   );
 
-  seastar::future<bool> remove(const seastar::sstring& key);
+  seastar::future<> remove(const seastar::sstring& key);
 
   seastar::future<> list(seastar::lw_shared_ptr<lst_holder> out_lst);
 };

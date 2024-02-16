@@ -309,28 +309,20 @@ seastar::future<> store_bucket::put(foo::store::insert_entry_ptr entry) {
 
 // Read data from disk
 seastar::future<foo::store::value_ptr> store_bucket::get(
-    const seastar::sstring& key
+    foo::store::store_key_ptr key
 ) {
-  auto fname = _manifest.get(key);
+  auto fname = _manifest.get(key->key());
   if (!fname) {
-    return seastar::make_ready_future<foo::store::value_ptr>(nullptr);
+    co_return nullptr;
   }
   auto fpath = fmt::format("{}/{}", _path, *fname);
   auto flags = seastar::open_flags::ro;
-  applog.debug("read value for key '{}' at '{}'", key, fpath);
+  applog.debug("read value for key '{}' at '{}'", key->key(), fpath);
 
-  return seastar::with_file(
-      seastar::open_file_dma(fpath, flags),
-      [](seastar::file& f) {
-        auto fsize = f.size().get();
-
-        return f.dma_read_exactly<char>(0, fsize).then([](auto buf) {
-          return seastar::make_ready_future<foo::store::value_ptr>(
-              foo::store::make_value_ptr_by_copy(buf.get(), buf.size())
-          );
-        });
-      }
-  );
+  auto f = co_await seastar::open_file_dma(fpath, flags);
+  auto fsize = co_await f.size();
+  auto buf = co_await f.dma_read_exactly<char>(0, fsize);
+  co_return foo::store::make_value_ptr_by_copy(buf.get(), buf.size());
 }
 
 seastar::future<> store_bucket::remove(const seastar::sstring& key) {
@@ -384,40 +376,31 @@ seastar::future<> store_shard::put(foo::store::insert_entry_ptr entry) {
 }
 
 seastar::future<foo::store::foreign_value_ptr> store_shard::get(
-    const seastar::sstring& key
+    foo::store::store_key_ptr key
 ) {
-  auto bucket = _cmap.get_bucket(key);
-  const auto target_shard = _cmap.get_shard(key);
+  auto bucket = _cmap.get_bucket(key->key());
+  const auto target_shard = _cmap.get_shard(key->key());
   if (target_shard != seastar::this_shard_id()) {
-    return seastar::make_exception_future<foo::store::foreign_value_ptr>(
-        std::runtime_error("wrong shard")
-    );
+    throw std::runtime_error("wrong shard");
   }
 
   if (!_buckets.contains(bucket)) {
-    return seastar::make_exception_future<foo::store::foreign_value_ptr>(
-        std::runtime_error("expected to own bucket")
-    );
+    throw std::runtime_error("expected to own bucket");
   }
 
-  auto cache_value = _cache.get(key);
+  auto cache_value = _cache.get(key->key());
   if (cache_value) {
     // in cache, return value
-    applog.debug("obtained key '{}' from cache", key);
-    return seastar::make_ready_future<foo::store::foreign_value_ptr>(
-        foo::store::make_foreign_value_ptr(cache_value)
-    );
+    applog.debug("obtained key '{}' from cache", key->key());
+    co_return foo::store::make_foreign_value_ptr(cache_value);
   }
 
   // must obtain from disk
-  return _buckets[bucket]->get(key).then([this, key](auto data) {
-    if (data) {
-      _cache.put_ptr(key, data);
-    }
-    return seastar::make_ready_future<foo::store::foreign_value_ptr>(
-        foo::store::make_foreign_value_ptr(data)
-    );
-  });
+  auto data = co_await _buckets[bucket]->get(key);
+  if (data) {
+    _cache.put_ptr(key->key(), data);
+  }
+  co_return foo::store::make_foreign_value_ptr(data);
 }
 
 seastar::future<bool> store_shard::remove(const seastar::sstring& key) {
@@ -481,7 +464,16 @@ seastar::future<foo::store::foreign_value_ptr> sharded_store::get(
 ) {
   auto shard = _cmap->get_shard(key);
   applog.debug("get key {} on shard {}", key, shard);
-  return _shards.invoke_on(shard, &store_shard::get, key);
+
+  if (seastar::this_shard_id() == shard) {
+    auto skey = foo::store::make_store_key_ptr(key);
+    return _shards.local().get(skey);
+  }
+
+  return _shards.invoke_on(shard, [key](store_shard& s) {
+    auto skey = foo::store::make_store_key_ptr(key);
+    return s.get(skey);
+  });
 }
 
 seastar::future<bool> sharded_store::remove(const seastar::sstring& key) {

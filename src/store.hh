@@ -80,7 +80,7 @@ class store_bucket {
   seastar::future<> init();
 
   seastar::future<> put(foo::store::insert_entry_ptr entry);
-  seastar::future<foo::store::value_ptr> get(const seastar::sstring& key);
+  seastar::future<foo::store::value_ptr> get(foo::store::store_key_ptr key);
   seastar::future<> remove(const seastar::sstring& key);
   std::set<std::string> list();
 };
@@ -113,7 +113,8 @@ class store_shard {
   seastar::future<> init();
 
   seastar::future<> put(foo::store::insert_entry_ptr entry);
-  seastar::future<foo::store::foreign_value_ptr> get(const seastar::sstring& key
+  seastar::future<foo::store::foreign_value_ptr> get(
+      foo::store::store_key_ptr key
   );
   seastar::future<bool> remove(const seastar::sstring& key);
   seastar::future<std::set<std::string>> list();

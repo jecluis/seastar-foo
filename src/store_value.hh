@@ -14,6 +14,30 @@
 namespace foo {
 namespace store {
 
+class store_key {
+  seastar::sstring _key;
+
+ public:
+  store_key() = delete;
+  store_key(store_key&) = default;
+  store_key(const store_key&) = default;
+  store_key(seastar::sstring key) : _key(key) {}
+
+  const seastar::sstring& key() { return _key; }
+
+  void operator=(store_key&& rhs) { _key = std::move(rhs._key); }
+};
+
+using store_key_ptr = seastar::lw_shared_ptr<store_key>;
+
+inline store_key_ptr make_store_key_ptr(store_key& key) {
+  return seastar::make_lw_shared<store_key>(key);
+}
+
+inline store_key_ptr make_store_key_ptr(const seastar::sstring& key) {
+  return seastar::make_lw_shared<store_key>(key);
+}
+
 // The 'store_value' class takes ownership of whatever 'data' pointer it is
 // provided, and will free it up on destruction (via 'delete').
 class store_value {

@@ -74,23 +74,23 @@ store_get_handler::handle(
   }
 
   applog.debug("obtain key '{}'", *key);
+  seastar::sstring k = *key;
 
-  return _store.get(*key).then([rep = std::move(rep), key](auto data) mutable {
-    if (!data) {
-      applog.debug("key '{}' not available", *key);
-      rep->set_status(seastar::http::reply::status_type::not_found).done();
-      return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
-          std::move(rep)
-      );
-    }
+  return _store.get(std::move(k))
+      .then([rep = std::move(rep), key](auto data) mutable {
+        if (!data) {
+          applog.debug("key '{}' not available", *key);
+          rep->set_status(seastar::http::reply::status_type::not_found).done();
+          return seastar::make_ready_future<
+              std::unique_ptr<seastar::http::reply>>(std::move(rep));
+        }
 
-    applog.debug("found item with key '{}'", *key);
-    seastar::sstring body_text(data->data(), data->size());
-    rep->write_body("text", body_text);
-    return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
-        std::move(rep)
-    );
-  });
+        applog.debug("found item with key '{}'", *key);
+        seastar::sstring body_text(data->data(), data->size());
+        rep->write_body("text", body_text);
+        return seastar::make_ready_future<
+            std::unique_ptr<seastar::http::reply>>(std::move(rep));
+      });
 }
 
 seastar::future<std::unique_ptr<seastar::http::reply>>

@@ -9,6 +9,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <cstdint>
+#include <optional>
 #include <seastar/core/file-types.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/future.hh>
@@ -31,21 +32,11 @@ namespace foo {
 
 namespace store {
 
-// Creates a store directory, populating the control file that keeps the number
-// of buckets being used.
-seastar::future<> create_store(
+// inits a store directory
+seastar::future<> init_store(
     const seastar::sstring& path, uint32_t num_buckets
 ) {
-  applog.info("creating store at {}", path);
-
-  // fname is the only variable that requires 'path' after calling
-  // 'make_directory()'. We need to keep in mind that we need this value in our
-  // context, and that we may lose 'path' (because it's a reference from
-  // somewhere else) while calling 'make_directory()' -- 'path' may not live
-  // long enough for the rest of this function to finish.
   auto fname = fmt::format("{}/num_buckets", path);
-
-  co_await seastar::make_directory(path);
   auto flags = seastar::open_flags::create | seastar::open_flags::rw;
   applog.debug("write num buckets {} to file", num_buckets);
   auto buckets_str = fmt::format("{}", num_buckets);
@@ -56,11 +47,38 @@ seastar::future<> create_store(
   co_await f.close();
 }
 
+// Creates a store directory, populating the control file that keeps the number
+// of buckets being used.
+seastar::future<> create_store(
+    const seastar::sstring& path, uint32_t num_buckets
+) {
+  applog.info("creating store at {}", path);
+
+  // we need to persist 'path' for long enough to finish the various calls we'll
+  // do, so we need a copy in case 'path' doesn't live long enough while we wait
+  // for the various coroutines to finish.
+  const seastar::sstring spath(path);
+  co_await seastar::make_directory(spath);
+  co_await init_store(spath, num_buckets);
+}
+
 // Opens a store directory, returning the number of buckets being used.
-seastar::future<uint32_t> open_store(const seastar::sstring& path) {
+seastar::future<std::optional<uint32_t>> open_store(const seastar::sstring& path
+) {
   auto fname = fmt::format("{}/num_buckets", path);
   auto flags = seastar::open_flags::ro;
   applog.debug("read num buckets file at {}", fname);
+
+  // check for 'num_buckets' existence.
+  auto ftype = co_await seastar::engine().file_type(fname);
+  if (!ftype.has_value()) {
+    // 'num_buckets' file does not exist; store not inited.
+    co_return std::nullopt;
+  } else if (*ftype != seastar::directory_entry_type::regular) {
+    throw std::runtime_error(
+        fmt::format("wrongly initialized store, 'num_buckets' is not a file")
+    );
+  }
 
   auto f = co_await seastar::open_file_dma(fname, flags);
   auto fsize = co_await f.size();
@@ -93,7 +111,13 @@ seastar::future<uint32_t> open_or_create(
     );
   }
 
-  co_return co_await open_store(spath);
+  auto nbuckets = co_await open_store(spath);
+  if (!nbuckets.has_value()) {
+    // store was probably not initialized.
+    co_await init_store(spath, num_buckets);
+    co_return num_buckets;
+  }
+  co_return *nbuckets;
 }
 
 seastar::future<> sharded_store::put(

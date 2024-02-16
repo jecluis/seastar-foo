@@ -7,8 +7,11 @@
 #include "store/bucket.hh"
 
 #include <optional>
+#include <seastar/core/file-types.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/util/log.hh>
+#include <stdexcept>
 
 #include "store/item.hh"
 
@@ -20,20 +23,17 @@ namespace store {
 
 seastar::future<> store_bucket::init() {
   applog.debug("init store bucket at '{}'", _path);
-  return seastar::engine()
-      .file_type(_path)
-      .then([this](std::optional<seastar::directory_entry_type> st) {
-        if (!st.has_value()) {
-          applog.debug("create store bucket directory at {}", _path);
-          return seastar::make_directory(_path);
-        } else if (*st != seastar::directory_entry_type::directory) {
-          return seastar::make_exception_future<>(std::runtime_error(
-              fmt::format("path {} exists but is not a directory", _path)
-          ));
-        }
-        return seastar::make_ready_future<>();
-      })
-      .then([this] { return _manifest.init(); });
+
+  auto ftype = co_await seastar::engine().file_type(_path);
+  if (!ftype.has_value()) {
+    co_await seastar::make_directory(_path);
+  } else if (*ftype != seastar::directory_entry_type::directory) {
+    throw std::runtime_error(
+        fmt::format("path {} exists but is not a directory", _path)
+    );
+  }
+
+  co_await _manifest.init();
 }
 
 seastar::future<> store_bucket::put(foo::store::insert_entry_ptr entry) {

@@ -6,6 +6,7 @@
 
 #include "store/manifest.hh"
 
+#include <optional>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/seastar.hh>
@@ -20,23 +21,19 @@ namespace foo {
 
 namespace store {
 
+// read manifest from disk
 seastar::future<> bucket_manifest::load_manifest() {
   applog.debug("load manifest at '{}'", _manifest_path);
   auto flags = seastar::open_flags::ro;
-  return seastar::with_file(
-      seastar::open_file_dma(_manifest_path, flags),
-      [this](seastar::file& f) {
-        auto fsize = f.size().get();
-        return f.dma_read<char>(0, fsize).then(
-            [this](seastar::temporary_buffer<char> tbuf) {
-              load_entries(tbuf);
-              return seastar::make_ready_future<>();
-            }
-        );
-      }
-  );
+
+  auto f = co_await seastar::open_file_dma(_manifest_path, flags);
+  auto fsize = co_await f.size();
+  auto buf = co_await f.dma_read<char>(0, fsize);
+  load_entries(buf);
+  co_await f.close();
 }
 
+// load individual manifest entries from the buffer read from disk
 void bucket_manifest::load_entries(seastar::temporary_buffer<char>& tbuf) {
   applog.debug("load entries from buffer size {}", tbuf.size());
   size_t pos = 0;
@@ -58,6 +55,7 @@ void bucket_manifest::load_entries(seastar::temporary_buffer<char>& tbuf) {
   }
 }
 
+// write manifest to disk
 seastar::future<> bucket_manifest::write_manifest() {
   applog.debug(
       "write manifest to '{}', keys {} fnames {}", _manifest_path,
@@ -66,32 +64,28 @@ seastar::future<> bucket_manifest::write_manifest() {
 
   auto flags = seastar::open_flags::create | seastar::open_flags::truncate |
                seastar::open_flags::rw;
-  return seastar::with_file(
-      seastar::open_file_dma(_manifest_path, flags),
-      [this](seastar::file& f) {
-        auto manifest_size = _key_to_fname_map.size() * (key_size + fname_size);
 
-        constexpr size_t alignment(4096u);
-        auto tbuf =
-            seastar::allocate_aligned_buffer<char>(manifest_size, alignment);
-        auto buf = tbuf.get();
-        memset(buf, '\0', manifest_size);
+  auto f = co_await seastar::open_file_dma(_manifest_path, flags);
+  auto manifest_size = _key_to_fname_map.size() * (key_size + fname_size);
 
-        size_t pos = 0;
-        for (const auto& [key, value] : _key_to_fname_map) {
-          assert(pos < manifest_size);
-          assert(pos + key_size + fname_size <= manifest_size);
-          assert(key.size() < key_size);
-          memcpy(buf + pos, key.c_str(), key.size());
-          memcpy(buf + pos + key_size, value.c_str(), fname_size);
-          pos += key_size + fname_size;
-        }
+  constexpr size_t alignment(4096u);
+  auto tbuf = seastar::allocate_aligned_buffer<char>(manifest_size, alignment);
+  auto buf = tbuf.get();
+  memset(buf, '\0', manifest_size);
 
-        return seastar::async([tbuf = std::move(tbuf), manifest_size, &f] {
-          (void)f.dma_write(0, tbuf.get(), manifest_size).get();
-        });
-      }
-  );
+  size_t pos = 0;
+  for (const auto& [key, value] : _key_to_fname_map) {
+    assert(pos < manifest_size);
+    assert(pos + key_size + fname_size <= manifest_size);
+    assert(key.size() < key_size);
+    memcpy(buf + pos, key.c_str(), key.size());
+    memcpy(buf + pos + key_size, value.c_str(), fname_size);
+    pos += key_size + fname_size;
+  }
+
+  co_await f.dma_write(0, tbuf.get(), manifest_size);
+  co_await f.flush();
+  co_await f.close();
 }
 
 seastar::future<std::string> bucket_manifest::put(const std::string& key) {
@@ -99,7 +93,7 @@ seastar::future<std::string> bucket_manifest::put(const std::string& key) {
   const auto& it = _key_to_fname_map.find(key);
   if (it != _key_to_fname_map.cend()) {
     applog.debug("key already exists, fname '{}'", it->second);
-    return seastar::make_ready_future<std::string>(it->second);
+    co_return it->second;
   }
 
   applog.debug("generate new fname for key '{}'", key);
@@ -112,12 +106,14 @@ seastar::future<std::string> bucket_manifest::put(const std::string& key) {
   }
   applog.debug("adding key '{}' to manifest, fname '{}'", key, fname);
 
-  _key_to_fname_map[key] = fname;
+  // keep a copy of key in case it doesn't live long enough across co_await
+  const seastar::sstring skey(key);
+
+  _key_to_fname_map[skey] = fname;
   _fname_set.insert(fname);
-  return write_manifest().then([key, fname = std::move(fname)] {
-    applog.debug("wrote manifest with new key '{}'", key);
-    return seastar::make_ready_future<std::string>(std::move(fname));
-  });
+  co_await write_manifest();
+  applog.debug("wrote manifest with new key '{}'", skey);
+  co_return fname;
 }
 
 std::optional<std::string> bucket_manifest::get(const std::string& key) {
@@ -146,15 +142,14 @@ seastar::future<std::optional<std::string>> bucket_manifest::remove(
   const auto& it = _key_to_fname_map.find(key);
   if (it == _key_to_fname_map.cend()) {
     applog.debug("key '{}' does not exist in manifest", key);
-    return seastar::make_ready_future<std::optional<std::string>>(std::nullopt);
+    co_return std::nullopt;
   }
   auto fname = it->second;
   _fname_set.erase(fname);
   _key_to_fname_map.erase(it);
 
-  return write_manifest().then([fname] {
-    return seastar::make_ready_future<std::optional<std::string>>(fname);
-  });
+  co_await write_manifest();
+  co_return fname;
 }
 
 std::set<std::string> bucket_manifest::list() {

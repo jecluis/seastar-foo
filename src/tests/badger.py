@@ -30,10 +30,14 @@ key_values: dict[str, str] = {}
 keys: list[str] = []
 
 
-def sig_handler(signum: int, frame: Any) -> None:
+def _stop() -> None:
     global do_stop
     print("stopping...")
     do_stop = True
+
+
+def sig_handler(signum: int, frame: Any) -> None:
+    _stop()
 
 
 signal.signal(signal.SIGINT, sig_handler)
@@ -49,12 +53,16 @@ async def _put(addr: str) -> None:
     data = _gen_random_str(random.randrange(10, 1024 * 1024))  # 10 bytes to 1MB
 
     async with aiohttp.ClientSession() as session:
-        async with session.put(f"{addr}/put/{key}", data=data) as res:
-            print(f"PUT: res={res.status}")
-            if res.ok:
-                async with map_lock:
-                    key_values[key] = data
-                    keys.append(key)
+        try:
+            async with session.put(f"{addr}/put/{key}", data=data) as res:
+                print(f"PUT: res={res.status}")
+                if res.ok:
+                    async with map_lock:
+                        key_values[key] = data
+                        keys.append(key)
+        except:
+            print(f"PUT: error on key {key}")
+            _stop()
 
 
 async def _get(addr: str) -> None:
@@ -66,22 +74,30 @@ async def _get(addr: str) -> None:
         data = key_values[key]
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{addr}/get/{key}") as res:
-            print(f"GET: res={res.status}")
-            if res.ok:
-                res_data = await res.text()
-                if res_data != data:
-                    print(f"GET: failed data sanity on key '{key}'")
-            else:
-                print(f"GET: failed obtaining key '{key}': res={res.status}")
+        try:
+            async with session.get(f"{addr}/get/{key}") as res:
+                print(f"GET: res={res.status}")
+                if res.ok:
+                    res_data = await res.text()
+                    if res_data != data:
+                        print(f"GET: failed data sanity on key '{key}'")
+                else:
+                    print(f"GET: failed obtaining key '{key}': res={res.status}")
+        except:
+            print(f"GET: error on key {key}")
+            _stop()
 
 
 async def _remove_key(addr: str, key: str) -> None:
     async with aiohttp.ClientSession() as session:
-        async with session.delete(f"{addr}/remove/{key}") as res:
-            print(f"DELETE: res={res.status}")
-            if not res.ok:
-                print(f"DELETE: failed removing key '{key}'")
+        try:
+            async with session.delete(f"{addr}/remove/{key}") as res:
+                print(f"DELETE: res={res.status}")
+                if not res.ok:
+                    print(f"DELETE: failed removing key '{key}'")
+        except:
+            print(f"DELETE: error on key {key}")
+            _stop()
 
 
 async def _remove(addr: str) -> None:
@@ -98,11 +114,15 @@ async def _remove(addr: str) -> None:
 
 async def _list(addr: str) -> None:
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{addr}/list") as res:
-            print(f"LIST: res={res.status}")
-            if res.ok:
-                keys = [x for x in (await res.text()).split("\n") if len(x) > 0]
-                print(f"LIST: got {len(keys)}")
+        try:
+            async with session.get(f"{addr}/list") as res:
+                print(f"LIST: res={res.status}")
+                if res.ok:
+                    keys = [x for x in (await res.text()).split("\n") if len(x) > 0]
+                    print(f"LIST: got {len(keys)}")
+        except:
+            print("LIST: error")
+            _stop()
 
 
 async def _cleanup(addr: str) -> None:

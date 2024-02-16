@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/http/reply.hh>
@@ -22,13 +23,11 @@ namespace foo {
 
 namespace httpd {
 
-seastar::future<std::unique_ptr<seastar::http::reply>> _return_bad_request(
+std::unique_ptr<seastar::http::reply> _return_bad_request(
     std::unique_ptr<seastar::http::reply> rep
 ) {
   rep->set_status(seastar::http::reply::status_type::bad_request).done();
-  return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
-      std::move(rep)
-  );
+  return rep;
 }
 
 std::optional<seastar::sstring> _get_param_key(seastar::http::request* req) {
@@ -70,27 +69,23 @@ store_get_handler::handle(
   applog.info("got GET request from {}", req->get_client_address());
   auto key = _get_param_key(req.get());
   if (!key) {
-    return _return_bad_request(std::move(rep));
+    co_return _return_bad_request(std::move(rep));
   }
 
   applog.debug("obtain key '{}'", *key);
   seastar::sstring k = *key;
 
-  return _store.get(std::move(k))
-      .then([rep = std::move(rep), key](auto data) mutable {
-        if (!data) {
-          applog.debug("key '{}' not available", *key);
-          rep->set_status(seastar::http::reply::status_type::not_found).done();
-          return seastar::make_ready_future<
-              std::unique_ptr<seastar::http::reply>>(std::move(rep));
-        }
+  auto data = co_await _store.get(std::move(k));
+  if (!data) {
+    applog.debug("key '{}' not available", *key);
+    rep->set_status(seastar::http::reply::status_type::not_found).done();
+    co_return std::unique_ptr<seastar::http::reply>(std::move(rep));
+  }
 
-        applog.debug("found item with key '{}'", *key);
-        seastar::sstring body_text(data->data(), data->size());
-        rep->write_body("text", body_text);
-        return seastar::make_ready_future<
-            std::unique_ptr<seastar::http::reply>>(std::move(rep));
-      });
+  applog.debug("found item with key '{}'", *key);
+  seastar::sstring body_text(data->data(), data->size());
+  rep->write_body("text", body_text);
+  co_return std::unique_ptr<seastar::http::reply>(std::move(rep));
 }
 
 seastar::future<std::unique_ptr<seastar::http::reply>>
@@ -101,7 +96,7 @@ store_put_handler::handle(
   applog.info("got PUT request from {}", req->get_client_address());
   auto key = _get_param_key(req.get());
   if (!key) {
-    return _return_bad_request(std::move(rep));
+    co_return _return_bad_request(std::move(rep));
   }
 
   auto insert_key = *key;
@@ -109,13 +104,9 @@ store_put_handler::handle(
   auto content_size = req->content_length;
 
   applog.debug("add key '{}' size {}", *key, content_size);
-
-  return _store.put(std::move(insert_key), std::move(content))
-      .then([rep = std::move(rep)]() mutable {
-        rep->set_status(seastar::http::reply::status_type::ok).done();
-        return seastar::make_ready_future<
-            std::unique_ptr<seastar::http::reply>>(std::move(rep));
-      });
+  co_await _store.put(std::move(insert_key), std::move(content));
+  rep->set_status(seastar::http::reply::status_type::ok).done();
+  co_return rep;
 }
 
 seastar::future<std::unique_ptr<seastar::http::reply>>
@@ -126,17 +117,14 @@ store_delete_handler::handle(
   applog.info("got DELETE request from {}", req->get_client_address());
   auto key = _get_param_key(req.get());
   if (!key) {
-    return _return_bad_request(std::move(rep));
+    co_return _return_bad_request(std::move(rep));
   }
 
   applog.debug("delete key '{}'", *key);
-  return _store.remove(*key).then([rep = std::move(rep)](auto) mutable {
-    // delete always succeeds, even if no key was actually deleted.
-    rep->set_status(seastar::http::reply::status_type::ok).done();
-    return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
-        std::move(rep)
-    );
-  });
+  co_await _store.remove(*key);
+  // delete always succeeds, even if no key was actually deleted.
+  rep->set_status(seastar::http::reply::status_type::ok).done();
+  co_return rep;
 }
 
 seastar::future<std::unique_ptr<seastar::http::reply>>
@@ -147,22 +135,19 @@ store_list_handler::handle(
   applog.info("got list request from {}", req->get_client_address());
 
   auto lst = seastar::make_lw_shared<foo::store::lst_holder>();
-  return _store.list(lst).then([lst, rep = std::move(rep)]() mutable {
-    std::set<std::string> res;
-    lst->agg(res);
-    applog.debug("process list from shards, size: {}", res.size());
-    std::string res_str;
-    for (auto& k : res) {
-      res_str += k;
-      res_str += '\n';
-    }
-    rep->write_body("text", res_str);
-    rep->set_status(seastar::http::reply::status_type::ok).done();
-    applog.debug("reply");
-    return seastar::make_ready_future<std::unique_ptr<seastar::http::reply>>(
-        std::move(rep)
-    );
-  });
+  co_await _store.list(lst);
+  std::set<std::string> res;
+  lst->agg(res);
+  applog.debug("process list from shards, size: {}", res.size());
+  std::string res_str;
+  for (auto& k : res) {
+    res_str += k;
+    res_str += '\n';
+  }
+  rep->write_body("text", res_str);
+  rep->set_status(seastar::http::reply::status_type::ok).done();
+  applog.debug("reply");
+  co_return rep;
 }
 
 }  // namespace httpd

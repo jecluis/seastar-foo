@@ -16,6 +16,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/shard_id.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
@@ -165,16 +166,20 @@ seastar::future<> sharded_store::remove(const seastar::sstring& key) {
   return _shards.invoke_on(shard, &store_shard::remove, key);
 }
 
-seastar::future<> sharded_store::list(seastar::lw_shared_ptr<lst_holder> out_lst
-) {
+seastar::future<seastar::lw_shared_ptr<lst_holder>> sharded_store::list() {
   applog.debug("list from all shards");
-  return _shards.invoke_on_all(
+  auto out_lst = seastar::make_lw_shared<lst_holder>(seastar::smp::count);
+  co_await _shards.invoke_on_all(
       [out_lst](store_shard& shard) mutable -> seastar::future<> {
-        applog.debug("list on shard {}", seastar::this_shard_id());
+        uint32_t id = out_lst->get_id();
+        applog.debug(
+            "list on shard {}, entry: {}", seastar::this_shard_id(), id
+        );
         const auto keys = co_await shard.list();
-        out_lst->insert(std::move(keys));
+        out_lst->insert(id, std::move(keys));
       }
   );
+  co_return out_lst;
 }
 
 }  // namespace store

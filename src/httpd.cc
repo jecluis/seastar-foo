@@ -134,8 +134,7 @@ store_list_handler::handle(
 ) {
   applog.info("got list request from {}", req->get_client_address());
 
-  auto lst = seastar::make_lw_shared<foo::store::lst_holder>();
-  co_await _store.list(lst);
+  auto lst = co_await _store.list();
   std::set<std::string> res;
   lst->agg(res);
   applog.debug("process list from shards, size: {}", res.size());

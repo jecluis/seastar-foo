@@ -6,7 +6,6 @@
 
 #include "store/lst.hh"
 
-#include <seastar/core/shard_id.hh>
 #include <seastar/util/log.hh>
 #include <set>
 #include <string>
@@ -17,15 +16,14 @@ namespace foo {
 
 namespace store {
 
-void lst_holder::insert(const std::set<std::string>&& other) {
-  applog.debug("do lst_holder insert2");
-  auto id = seastar::this_shard_id();
-  _shards[id] = std::move(other);
+void lst_holder::insert(uint32_t n, const std::set<std::string>&& other) {
+  applog.debug("do lst_holder insert, n: {}, size: {}", n, other.size());
+  _entries[n] = std::move(other);
 }
 
 void lst_holder::agg(std::set<std::string>& res) {
-  for (auto& keys : _shards) {
-    res.insert(keys.cbegin(), keys.cend());
+  for (auto& entry : _entries) {
+    res.insert(entry.cbegin(), entry.cend());
   }
 }
 

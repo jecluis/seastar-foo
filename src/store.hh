@@ -52,7 +52,7 @@ class sharded_store {
 
   seastar::future<> remove(const seastar::sstring& key);
 
-  seastar::future<> list(seastar::lw_shared_ptr<lst_holder> out_lst);
+  seastar::future<seastar::lw_shared_ptr<lst_holder>> list();
 };
 
 seastar::future<uint32_t> open_or_create(

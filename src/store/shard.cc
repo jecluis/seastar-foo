@@ -10,10 +10,12 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/shard_id.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/util/log.hh>
 #include <stdexcept>
 
 #include "store/item.hh"
+#include "store/lst.hh"
 
 static seastar::logger applog(__FILE__);
 
@@ -103,12 +105,20 @@ seastar::future<> store_shard::remove(const seastar::sstring& key) {
 }
 
 seastar::future<std::set<std::string>> store_shard::list() {
+  auto lst = seastar::make_lw_shared<foo::store::lst_holder>(_buckets.size());
+
+  co_await seastar::parallel_for_each(
+      _buckets.begin(), _buckets.end(),
+      [lst](auto& b) -> seastar::future<> {
+        auto id = lst->get_id();
+        lst->insert(id, b.second->list());
+        co_return;
+      }
+  );
+
   std::set<std::string> s;
-  for (auto& b : _buckets) {
-    const auto& k = b.second->list();
-    s.insert(k.cbegin(), k.cend());
-  }
-  return seastar::make_ready_future<std::set<std::string>>(s);
+  lst->agg(s);
+  co_return s;
 }
 
 seastar::future<> store_shard::stop() {

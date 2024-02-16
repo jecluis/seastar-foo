@@ -2,12 +2,12 @@ COMPILER = /usr/bin/clang++
 CFLAGS = -g
 MODE = release
 
-foo: foo.cc cache.cc httpd.cc store.cc
-	$(COMPILER) foo.cc cache.cc httpd.cc store.cc \
+foo: foo.cc cache.cc httpd.cc store.cc store/manifest.cc
+	$(COMPILER) foo.cc cache.cc httpd.cc store.cc store/manifest.cc -I. \
 		$(shell pkg-config --libs --cflags --static ../seastar/build/release/seastar.pc) $(CFLAGS) -o foo
 
 foo-debug: foo.cc cache.cc httpd.cc store.cc
-	/usr/bin/g++ foo.cc cache.cc httpd.cc store.cc \
+	/usr/bin/g++ foo.cc cache.cc httpd.cc store.cc store/manifest.cc -I. \
 		$(shell pkg-config --libs --cflags ../seastar/build/debug/seastar.pc) $(CFLAGS) -o foo-debug
 
 app: /opt/seastar/build/$(MODE)/libseastar.a app.cc

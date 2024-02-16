@@ -6,7 +6,6 @@
 
 #include "store.hh"
 
-#include <atomic>
 #include <boost/lexical_cast.hpp>
 #include <cstdint>
 #include <seastar/core/file-types.hh>
@@ -157,25 +156,14 @@ seastar::future<bool> sharded_store::remove(const seastar::sstring& key) {
   return _shards.invoke_on(shard, &store_shard::remove, key);
 }
 
-struct op_holder {
-  std::atomic<int> op;
-
-  op_holder() : op(0) {}
-};
-
 seastar::future<> sharded_store::list(seastar::lw_shared_ptr<lst_holder> out_lst
 ) {
-  applog.debug("list2 from all shards");
-  seastar::lw_shared_ptr<op_holder> op = seastar::make_lw_shared<op_holder>();
+  applog.debug("list from all shards");
   return _shards.invoke_on_all(
-      [op, out_lst](store_shard& shard) mutable -> seastar::future<> {
-        int _op = op->op.fetch_add(1);
-        applog.debug(
-            "list2 on shard {} (op {})", seastar::this_shard_id(), _op
-        );
+      [out_lst](store_shard& shard) mutable -> seastar::future<> {
+        applog.debug("list on shard {}", seastar::this_shard_id());
         const auto keys = co_await shard.list();
         out_lst->insert(std::move(keys));
-        co_return;
       }
   );
 }

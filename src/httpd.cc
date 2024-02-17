@@ -6,10 +6,17 @@
 
 #include "httpd.hh"
 
+#include <bits/chrono.h>
+
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/http/url.hh>
@@ -22,6 +29,28 @@ static seastar::logger applog(__FILE__);
 namespace foo {
 
 namespace httpd {
+
+using clock_type = seastar::lowres_clock;
+
+seastar::future<store_httpd_handler::http_reply> store_httpd_handler::handle(
+    const seastar::sstring& path, http_request req, http_reply rep
+) {
+  const std::string method = boost::to_upper_copy<std::string>(req->_method);
+  std::vector<std::string> path_vec;
+  boost::split(path_vec, path, boost::is_any_of("/"));
+  assert(path_vec.size() >= 1);
+  const std::string endpoint = boost::to_upper_copy(path_vec[1]);
+  applog.debug("{} {} from {}", method, endpoint, req->get_client_address());
+
+  auto start = clock_type::now();
+  auto res = co_await handle_request(path, std::move(req), std::move(rep));
+  auto end = clock_type::now();
+
+  auto diff =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  applog.debug("{} {} took {} us", method, endpoint, diff.count());
+  co_return res;
+}
 
 std::unique_ptr<seastar::http::reply> _return_bad_request(
     std::unique_ptr<seastar::http::reply> rep
@@ -61,10 +90,9 @@ std::optional<seastar::sstring> _get_param_key(seastar::http::request* req) {
   return key;
 }
 
-seastar::future<std::unique_ptr<seastar::http::reply>>
-store_get_handler::handle(
-    const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-    std::unique_ptr<seastar::http::reply> rep
+seastar::future<store_httpd_handler::http_reply>
+store_get_handler::handle_request(
+    const seastar::sstring& path, http_request req, http_reply rep
 ) {
   applog.info("got GET request from {}", req->get_client_address());
   auto key = _get_param_key(req.get());
@@ -88,10 +116,9 @@ store_get_handler::handle(
   co_return std::unique_ptr<seastar::http::reply>(std::move(rep));
 }
 
-seastar::future<std::unique_ptr<seastar::http::reply>>
-store_put_handler::handle(
-    const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-    std::unique_ptr<seastar::http::reply> rep
+seastar::future<store_httpd_handler::http_reply>
+store_put_handler::handle_request(
+    const seastar::sstring& path, http_request req, http_reply rep
 ) {
   applog.info("got PUT request from {}", req->get_client_address());
   auto key = _get_param_key(req.get());
@@ -109,10 +136,9 @@ store_put_handler::handle(
   co_return rep;
 }
 
-seastar::future<std::unique_ptr<seastar::http::reply>>
-store_delete_handler::handle(
-    const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-    std::unique_ptr<seastar::http::reply> rep
+seastar::future<store_httpd_handler::http_reply>
+store_delete_handler::handle_request(
+    const seastar::sstring& path, http_request req, http_reply rep
 ) {
   applog.info("got DELETE request from {}", req->get_client_address());
   auto key = _get_param_key(req.get());
@@ -127,10 +153,9 @@ store_delete_handler::handle(
   co_return rep;
 }
 
-seastar::future<std::unique_ptr<seastar::http::reply>>
-store_list_handler::handle(
-    const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-    std::unique_ptr<seastar::http::reply> rep
+seastar::future<store_httpd_handler::http_reply>
+store_list_handler::handle_request(
+    const seastar::sstring& path, http_request req, http_reply rep
 ) {
   applog.info("got list request from {}", req->get_client_address());
 

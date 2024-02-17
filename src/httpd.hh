@@ -20,55 +20,66 @@ namespace httpd {
 
 constexpr int MAX_KEY_LEN = 255;
 
-// GET
-class store_get_handler : public seastar::httpd::handler_base {
+class store_httpd_handler : public seastar::httpd::handler_base {
+ protected:
   foo::store::sharded_store& _store;
 
  public:
-  store_get_handler(foo::store::sharded_store& store) : _store(store) {}
+  store_httpd_handler(foo::store::sharded_store& store) : _store(store) {}
 
-  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
-      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-      std::unique_ptr<seastar::http::reply> rep
+  using http_request = std::unique_ptr<seastar::http::request>;
+  using http_reply = std::unique_ptr<seastar::http::reply>;
+
+  virtual seastar::future<http_reply> handle(
+      const seastar::sstring& path, http_request req, http_reply rep
+  );
+
+  virtual seastar::future<http_reply> handle_request(
+      const seastar::sstring& path, http_request req, http_reply rep
+  ) = 0;
+};
+
+// GET
+class store_get_handler : public store_httpd_handler {
+ public:
+  store_get_handler(foo::store::sharded_store& store)
+      : store_httpd_handler(store) {}
+
+  virtual seastar::future<http_reply> handle_request(
+      const seastar::sstring& path, http_request req, http_reply rep
   );
 };
 
 // PUT
-class store_put_handler : public seastar::httpd::handler_base {
-  foo::store::sharded_store& _store;
-
+class store_put_handler : public store_httpd_handler {
  public:
-  store_put_handler(foo::store::sharded_store& store) : _store(store) {}
+  store_put_handler(foo::store::sharded_store& store)
+      : store_httpd_handler(store) {}
 
-  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
-      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-      std::unique_ptr<seastar::http::reply> rep
+  virtual seastar::future<http_reply> handle_request(
+      const seastar::sstring& path, http_request req, http_reply rep
   );
 };
 
 // DELETE
-class store_delete_handler : public seastar::httpd::handler_base {
-  foo::store::sharded_store& _store;
-
+class store_delete_handler : public store_httpd_handler {
  public:
-  store_delete_handler(foo::store::sharded_store& store) : _store(store) {}
+  store_delete_handler(foo::store::sharded_store& store)
+      : store_httpd_handler(store) {}
 
-  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
-      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-      std::unique_ptr<seastar::http::reply> rep
+  virtual seastar::future<http_reply> handle_request(
+      const seastar::sstring& path, http_request req, http_reply rep
   );
 };
 
-// List objects / HEAD at root
-class store_list_handler : public seastar::httpd::handler_base {
-  foo::store::sharded_store& _store;
-
+// List objects
+class store_list_handler : public store_httpd_handler {
  public:
-  store_list_handler(foo::store::sharded_store& store) : _store(store) {}
+  store_list_handler(foo::store::sharded_store& store)
+      : store_httpd_handler(store) {}
 
-  virtual seastar::future<std::unique_ptr<seastar::http::reply>> handle(
-      const seastar::sstring& path, std::unique_ptr<seastar::http::request> req,
-      std::unique_ptr<seastar::http::reply> rep
+  virtual seastar::future<http_reply> handle_request(
+      const seastar::sstring& path, http_request req, http_reply rep
   );
 };
 

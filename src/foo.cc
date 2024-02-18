@@ -35,10 +35,13 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/log.hh>
+#include <sstream>
 
 #include "cmap.hh"
 #include "httpd.hh"
+#include "stats.hh"
 #include "store.hh"
+#include "store/shard.hh"
 
 using namespace seastar;
 
@@ -101,9 +104,25 @@ int main(int argc, char** argv) {
           cache_bucket_count
       );
 
-      engine().at_exit([&] {
+      engine().at_exit([&]() -> seastar::future<> {
         applog.info("stop store shards");
-        return store_shards.stop();
+        auto stats = seastar::make_lw_shared<foo::stats::shard_stats>();
+
+        co_await store_shards.invoke_on_all([stats](auto& s) {
+          auto& shard_stats = s.stats();
+          *stats += shard_stats;
+          std::ostringstream oss;
+          shard_stats.print(oss);
+          applog.info("statistics: {}", oss.str());
+        });
+
+        co_await store_shards.stop();
+
+        std::ostringstream oss;
+        stats->print(oss);
+        applog.info("total statistics: {}", oss.str());
+
+        co_return;
       });
 
       return foo::store::open_or_create(store_path, store_bucket_count)

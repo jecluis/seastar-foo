@@ -9,13 +9,14 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <seastar/core/future.hh>
 #include <seastar/core/sstring.hh>
 #include <set>
 #include <utility>
 
 #include "cache.hh"
 #include "cmap.hh"
-#include "seastar/core/future.hh"
+#include "stats.hh"
 #include "store/bucket.hh"
 #include "store/item.hh"
 
@@ -29,9 +30,10 @@ class store_shard {
   const seastar::sstring _store_path;
   const foo::consistent_map _cmap;
   foo::cache::cache _cache;
-
   // associative map of store buckets for this shard
   std::map<uint32_t, store_bucket_ptr> _buckets;
+  // statistics for this shard
+  foo::stats::shard_stats _stats;
 
  public:
   store_shard(
@@ -56,6 +58,8 @@ class store_shard {
   );
   seastar::future<> remove(const seastar::sstring& key);
   seastar::future<std::set<std::string>> list();
+
+  foo::stats::shard_stats& stats() { return _stats; };
 
   seastar::future<> stop();
 };

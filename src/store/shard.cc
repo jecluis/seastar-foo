@@ -57,6 +57,7 @@ seastar::future<> store_shard::put(foo::store::insert_entry_ptr entry) {
   if (!res) {
     applog.error("unable to store key/value in cache");
   }
+  _stats.put();
 }
 
 seastar::future<foo::store::foreign_value_ptr> store_shard::get(
@@ -72,12 +73,15 @@ seastar::future<foo::store::foreign_value_ptr> store_shard::get(
     throw std::runtime_error("expected to own bucket");
   }
 
+  _stats.get();
   auto cache_value = _cache.get(key->key());
   if (cache_value) {
     // in cache, return value
     applog.debug("obtained key '{}' from cache", key->key());
+    _stats.cache().hit();
     co_return foo::store::make_foreign_value_ptr(cache_value);
   }
+  _stats.cache().miss();
 
   // must obtain from disk
   auto data = co_await _buckets[bucket]->get(key);
@@ -102,6 +106,7 @@ seastar::future<> store_shard::remove(const seastar::sstring& key) {
   const seastar::sstring skey(key);
   co_await _buckets[bucket]->remove(skey);
   _cache.remove(skey);
+  _stats.remove();
 }
 
 seastar::future<std::set<std::string>> store_shard::list() {
@@ -118,6 +123,7 @@ seastar::future<std::set<std::string>> store_shard::list() {
 
   std::set<std::string> s;
   lst->agg(s);
+  _stats.list();
   co_return s;
 }
 

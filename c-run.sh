@@ -5,6 +5,10 @@
 # Helps running stuff within a container context, so we don't have to deal
 # with annoying dependencies when building against seastar.
 #
+
+cbin=${CBIN:-docker}
+
+build_image_name="seastar-foo/builder:fedora39"
 mydir=$(dirname "$(realpath "$0")")
 groups=()
 
@@ -15,12 +19,14 @@ done
 tmpdir=$(mktemp -d)
 
 kill_it() {
+  exit_code=$?
   rm -fr "${tmpdir}"
+  exit $exit_code
 }
 
 trap kill_it SIGTERM SIGINT SIGHUP EXIT
 
-docker run -it \
+${cbin} run -it \
   -u "$(id -u):$(id -g)" \
   "${groups[@]}" \
   -v /etc/passwd:/etc/passwd:ro \
@@ -37,5 +43,5 @@ docker run -it \
   -v "/etc/localtime:/etc/localtime:ro" \
   -w "${PWD}" \
   -e HOME="${HOME}" \
-  seastar-build:fedora39 \
+  "${build_image_name}" \
   "$@"
